@@ -190,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ... [el resto del código es idéntico hasta la parte de exportación] ...
+  // ... [todo lo demás de tu código original] ...
 
   // Export helpers
   function exportToCsv(filename, data, columns) {
@@ -209,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.removeChild(link);
   }
 
-  // === CAMBIOS: exportación con REVISAR y UBICACIÓN + TXT en movimientos ===
+  // CAMBIO: función modificada
   function aggregateAndExport(dataArray, filenamePrefix) {
     const today = new Date().toISOString().slice(0,10);
     const agg = {};
@@ -220,7 +220,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!agg[item.sku].UBICACIONES.includes(item.ubicacion)) agg[item.sku].UBICACIONES.push(item.ubicacion);
       }
     });
-
     const out = Object.values(agg).map(it => ({
       SKU: it.SKU,
       CANTIDAD: it.CANTIDAD,
@@ -229,7 +228,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'UBICACIÓN': it.UBICACIONES.join(' ; '),
       REVISAR: it.UBICACIONES.length > 1 ? 'SI' : 'NO'
     }));
-
     const cols = [
       {key:'SKU',title:'SKU'},
       {key:'CANTIDAD',title:'CANTIDAD'},
@@ -238,14 +236,13 @@ document.addEventListener('DOMContentLoaded', () => {
       {key:'UBICACIÓN',title:'UBICACIÓN'},
       {key:'REVISAR',title:'REVISAR'}
     ];
-
     exportToCsv(`${filenamePrefix}_${today}.csv`, out, cols);
   }
 
   document.getElementById('export-picking-btn').addEventListener('click', () => aggregateAndExport(pickingData, 'Picking'));
   document.getElementById('export-almacen-btn').addEventListener('click', () => aggregateAndExport(almacenData, 'Almacén'));
 
-  // Movimientos con TXT
+  // CAMBIO: exportación de movimientos con TXT
   document.getElementById('export-movimientos-btn').addEventListener('click', () => {
     const today = new Date().toISOString().slice(0,10);
     const out = movimientosData.map(it => ({
@@ -267,5 +264,5 @@ document.addEventListener('DOMContentLoaded', () => {
     exportToCsv(`Movimientos_${today}.csv`, out, cols);
   });
 
-  // renderData y resto del código original...
+  // ... [resto de tu código original sin cambios] ...
 });
