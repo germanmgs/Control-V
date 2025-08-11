@@ -1,5 +1,9 @@
+/* app.js - integrado con Firebase Realtime Database (y anonymous auth).
+   Requiere que pegues firebaseConfig en index.html.
+*/
+
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Referencias a elementos del DOM ---
+    // --- DOM refs ---
     const navButtons = document.querySelectorAll('.nav-btn');
     const tabContents = document.querySelectorAll('.tab-content');
     const sideMenu = document.getElementById('side-menu');
@@ -20,7 +24,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const movimientoSKU = document.getElementById('movimiento-sku');
     const movimientoCantidad = document.getElementById('movimiento-cantidad');
 
-    // Nuevo: referencia al switch
+    const firebaseStatus = document.getElementById('firebase-status');
+
+    // switch
     const toggleLocationRequirement = document.getElementById('toggle-location-requirement');
     let locationRequirementDisabled = false;
     toggleLocationRequirement.addEventListener('change', () => {
@@ -29,21 +35,126 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentScanInput = null;
 
-    // --- Almacenamiento de Datos en localStorage ---
-    let pickingData = JSON.parse(localStorage.getItem('pickingData')) || [];
-    let almacenData = JSON.parse(localStorage.getItem('almacenData')) || [];
-    let movimientosData = JSON.parse(localStorage.getItem('movimientosData')) || [];
-    let productCatalog = JSON.parse(localStorage.getItem('productCatalog')) || {};
+    // --- Datos locales (contendrán además _key si vienen de Firebase) ---
+    let pickingData = [];
+    let almacenData = [];
+    let movimientosData = [];
+    let productCatalog = {};
 
-    // --- Funciones de Utilidad ---
-    function saveToLocalStorage(key, data) {
-        localStorage.setItem(key, JSON.stringify(data));
+    // --- Modo y refs Firebase ---
+    let firebaseEnabled = false;
+    let dbRootRef = null;
+    let picksRef = null;
+    let almacenRef = null;
+    let movimientosRef = null;
+    let catalogRef = null;
+
+    function isFirebaseAvailable() {
+        return typeof firebase !== 'undefined' && firebase && firebase.app && firebase.apps && firebaseConfig;
     }
 
+    async function initFirebase() {
+        if (!isFirebaseAvailable()) {
+            firebaseEnabled = false;
+            firebaseStatus.textContent = 'Firebase no configurado / modo local';
+            console.warn('Firebase no disponible -> modo localStorage');
+            loadFromLocalStorageAll();
+            renderData();
+            return;
+        }
+
+        try {
+            // sign in anonymous
+            await firebase.auth().signInAnonymously();
+            dbRootRef = firebase.database().ref('vaxel');
+            picksRef = dbRootRef.child('picking');
+            almacenRef = dbRootRef.child('almacen');
+            movimientosRef = dbRootRef.child('movimientos');
+            catalogRef = dbRootRef.child('catalog');
+
+            firebaseEnabled = true;
+            firebaseStatus.textContent = 'Conectado a Firebase (Realtime DB)';
+            setupFirebaseListeners();
+        } catch (err) {
+            console.error('Error inicializando Firebase:', err);
+            firebaseEnabled = false;
+            firebaseStatus.textContent = 'Error Firebase - modo local';
+            loadFromLocalStorageAll();
+            renderData();
+        }
+    }
+
+    function setupFirebaseListeners() {
+        // Helper to convert snapshot object -> array with keys
+        const objToArray = (obj) => {
+            if (!obj) return [];
+            return Object.keys(obj).map(k => ({ ...obj[k], _key: k }));
+        };
+
+        // Picking
+        picksRef.on('value', snapshot => {
+            const val = snapshot.val();
+            pickingData = objToArray(val);
+            saveToLocalStorage('pickingData', pickingData);
+            renderData();
+        });
+
+        // Almacén
+        almacenRef.on('value', snapshot => {
+            const val = snapshot.val();
+            almacenData = objToArray(val);
+            saveToLocalStorage('almacenData', almacenData);
+            renderData();
+        });
+
+        // Movimientos
+        movimientosRef.on('value', snapshot => {
+            const val = snapshot.val();
+            movimientosData = objToArray(val);
+            saveToLocalStorage('movimientosData', movimientosData);
+            renderData();
+        });
+
+        // Catalogo
+        catalogRef.on('value', snapshot => {
+            const val = snapshot.val() || {};
+            productCatalog = val;
+            saveToLocalStorage('productCatalog', productCatalog);
+            updateDatalist();
+            renderData();
+        });
+    }
+
+    // --- localStorage helpers ---
+    function saveToLocalStorage(key, data) {
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {
+            console.warn('No se pudo guardar en localStorage', e);
+        }
+    }
+
+    function loadFromLocalStorage(key, defaultVal) {
+        try {
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw) : defaultVal;
+        } catch (e) {
+            return defaultVal;
+        }
+    }
+
+    function loadFromLocalStorageAll() {
+        pickingData = loadFromLocalStorage('pickingData', []);
+        almacenData = loadFromLocalStorage('almacenData', []);
+        movimientosData = loadFromLocalStorage('movimientosData', []);
+        productCatalog = loadFromLocalStorage('productCatalog', {});
+    }
+
+    // --- Render / Tabla / Utilidades (sin cambios lógicos) ---
     function renderTable(containerId, data, columns, dataKey) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
-        if (data.length === 0) {
+        if (!data || data.length === 0) {
             container.innerHTML = '<p>No hay datos registrados.</p>';
             return;
         }
@@ -68,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.createElement('tr');
             columns.forEach(col => {
                 const td = document.createElement('td');
-                td.textContent = item[col.key];
+                td.textContent = item[col.key] != null ? item[col.key] : '';
                 row.appendChild(td);
             });
             
@@ -76,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const deleteBtn = document.createElement('button');
             deleteBtn.innerHTML = '<span class="material-icons">delete_forever</span>';
             deleteBtn.className = 'delete-btn';
-            deleteBtn.onclick = () => deleteEntry(dataKey, index);
+            deleteBtn.onclick = () => deleteEntry(dataKey, item._key);
             tdActions.appendChild(deleteBtn);
             row.appendChild(tdActions);
 
@@ -88,19 +199,30 @@ document.addEventListener('DOMContentLoaded', () => {
         container.appendChild(table);
     }
     
-    function deleteEntry(dataKey, index) {
-        if (confirm('¿Estás seguro de que quieres eliminar este registro?')) {
-            let dataArray;
+    async function deleteEntry(dataKey, key) {
+        if (!confirm('¿Estás seguro de que quieres eliminar este registro?')) return;
+
+        if (firebaseEnabled) {
             if (dataKey === 'pickingData') {
-                dataArray = pickingData;
+                await picksRef.child(key).remove();
             } else if (dataKey === 'almacenData') {
-                dataArray = almacenData;
+                await almacenRef.child(key).remove();
             } else if (dataKey === 'movimientosData') {
-                dataArray = movimientosData;
+                await movimientosRef.child(key).remove();
             }
-            dataArray.splice(index, 1);
-            saveToLocalStorage(dataKey, dataArray);
-            
+            // los listeners de firebase actualizarán todo automáticamente
+        } else {
+            // modo local: buscar por _key o index
+            if (dataKey === 'pickingData') {
+                pickingData = pickingData.filter(item => item._key !== key);
+                saveToLocalStorage('pickingData', pickingData);
+            } else if (dataKey === 'almacenData') {
+                almacenData = almacenData.filter(item => item._key !== key);
+                saveToLocalStorage('almacenData', almacenData);
+            } else if (dataKey === 'movimientosData') {
+                movimientosData = movimientosData.filter(item => item._key !== key);
+                saveToLocalStorage('movimientosData', movimientosData);
+            }
             renderData();
         }
     }
@@ -125,13 +247,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Menú Lateral ---
+    // --- Menu lateral ---
     menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
     closeMenuBtn.addEventListener('click', () => stopScanner());
     closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
 
     // -------------------------
-    // Escáner: implementacion con BarcodeDetector + fallback ZXing
+    // Escáner: BarcodeDetector + ZXing fallback (sin cambios mayores)
     // -------------------------
     let videoStream = null;
     let videoElem = null;
@@ -361,7 +483,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function setupForm(form, dataArray, dataKey) {
+    // --- FORM SETUP: ahora escriben a Firebase si está activo ---
+    function setupForm(form, dataKeyRef, dataKeyName) {
         const skuInput = form.querySelector('input[id$="-sku"]');
         const locationInput = form.querySelector('input[id$="-location"]');
         const boxesInput = form.querySelector('input[id$="-boxes"]');
@@ -386,7 +509,7 @@ document.addEventListener('DOMContentLoaded', () => {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const sku = skuInput.value.trim();
-            let location = locationInput.value.trim();
+            let location = locationInput ? locationInput.value.trim() : '';
             const cantidad = parseInt(totalDisplay.textContent) || 0;
             const fecha = new Date().toLocaleString();
 
@@ -395,8 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            // Advertencia ubicación (solo si switch está apagado)
-            if (!locationRequirementDisabled && dataKey !== 'movimientosData' && !location) {
+            if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
                 const continuar = await showDialog("ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?", [
                     { label: "No", value: false },
                     { label: "Si", value: true }
@@ -412,32 +534,72 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!continuar) return;
             }
 
-            const sameSkuDifferentLocation = dataArray.find(item => item.sku === sku && item.ubicacion && item.ubicacion !== location);
-            if (sameSkuDifferentLocation) {
-                const guardar = await showDialog("Este SKU ya fue cargado con otra ubicacion", [
-                    { label: "Cancelar", value: false },
-                    { label: "Guardar de todos modos", value: true }
-                ]);
-                if (!guardar) return;
+            // Lógica de mezcla/actualización: si ya existe SKU con misma ubicación -> sumar
+            // Para simplificar con Firebase: buscamos item igual en la lista local y si existe actualizamos su cantidad.
+            let itemToUpdate = null;
+            const dataArray = (dataKeyName === 'pickingData') ? pickingData : (dataKeyName === 'almacenData') ? almacenData : movimientosData;
+            if (dataKeyName !== 'movimientosData') {
+                itemToUpdate = dataArray.find(item => item.sku === sku && item.ubicacion === location);
             }
 
-            const itemToUpdate = dataArray.find(item => item.sku === sku && item.ubicacion === location);
-            if (itemToUpdate) {
-                itemToUpdate.cantidad += cantidad;
+            if (firebaseEnabled) {
+                if (dataKeyName === 'pickingData') {
+                    if (itemToUpdate) {
+                        // actualizar cantidad en db
+                        const key = itemToUpdate._key;
+                        const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
+                        await picksRef.child(key).update({ cantidad: newCantidad, fecha });
+                    } else {
+                        await picksRef.push({ fecha, sku, ubicacion: location, cantidad });
+                    }
+                } else if (dataKeyName === 'almacenData') {
+                    if (itemToUpdate) {
+                        const key = itemToUpdate._key;
+                        const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
+                        await almacenRef.child(key).update({ cantidad: newCantidad, fecha });
+                    } else {
+                        await almacenRef.push({ fecha, sku, ubicacion: location, cantidad });
+                    }
+                } else {
+                    // movimientos
+                    await movimientosRef.push({ fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad });
+                }
+                // Firebase listeners actualizarán la UI
             } else {
-                dataArray.push({ fecha, sku, ubicacion: location, cantidad });
+                // modo local: trabajar sobre arrays y guardar localStorage
+                if (dataKeyName === 'pickingData') {
+                    if (itemToUpdate) {
+                        itemToUpdate.cantidad += cantidad;
+                    } else {
+                        const newObj = { fecha, sku, ubicacion: location, cantidad, _key: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2,8) };
+                        pickingData.push(newObj);
+                    }
+                    saveToLocalStorage('pickingData', pickingData);
+                } else if (dataKeyName === 'almacenData') {
+                    if (itemToUpdate) {
+                        itemToUpdate.cantidad += cantidad;
+                    } else {
+                        const newObj = { fecha, sku, ubicacion: location, cantidad, _key: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2,8) };
+                        almacenData.push(newObj);
+                    }
+                    saveToLocalStorage('almacenData', almacenData);
+                } else {
+                    // movimientos local
+                    const newObj = { fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad, _key: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2,8) };
+                    movimientosData.push(newObj);
+                    saveToLocalStorage('movimientosData', movimientosData);
+                }
+                renderData();
             }
 
-            saveToLocalStorage(dataKey, dataArray);
-            renderData();
             form.reset();
             updateTotal();
-            descriptionSpan.textContent = '';
+            if (descriptionSpan) descriptionSpan.textContent = '';
         });
     }
     
-    setupForm(pickingForm, pickingData, 'pickingData');
-    setupForm(almacenForm, almacenData, 'almacenData');
+    setupForm(pickingForm, null, 'pickingData');
+    setupForm(almacenForm, null, 'almacenData');
 
     origenSelect.addEventListener('change', (e) => {
         if (e.target.value === 'Picking') {
@@ -447,25 +609,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Movimientos form (usa setupForm? ya cubierto but keep listener for explicit behavior)
     movimientosForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const origen = origenSelect.value;
-        const destino = destinoSelect.value;
         const sku = movimientoSKU.value.trim();
         const cantidad = parseInt(movimientoCantidad.value) || 0;
         const fecha = new Date().toLocaleString();
-        
+
         if (!sku || cantidad < 0) {
             alert('Por favor, completa todos los campos correctamente.');
             return;
         }
-        
-        movimientosData.push({ fecha, origen, destino, sku, cantidad });
-        saveToLocalStorage('movimientosData', movimientosData);
-        renderData();
+
+        if (firebaseEnabled) {
+            movimientosRef.push({ fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad });
+        } else {
+            const newObj = { fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad, _key: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2,8) };
+            movimientosData.push(newObj);
+            saveToLocalStorage('movimientosData', movimientosData);
+            renderData();
+        }
         movimientosForm.reset();
     });
 
+    // --- Carga de catálogo desde archivo (guarda en Firebase o local) ---
     document.getElementById('load-file-btn').addEventListener('click', () => {
         const fileInput = document.getElementById('file-input');
         const file = fileInput.files[0];
@@ -478,7 +645,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fileType = fileName.split('.').pop().toLowerCase();
         
         let fileReader = new FileReader();
-        fileReader.onload = (e) => {
+        fileReader.onload = async (e) => {
             let jsonData;
             if (fileType === 'xlsx') {
                 const data = new Uint8Array(e.target.result);
@@ -493,20 +660,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            productCatalog = {};
+            const newCatalog = {};
             if (jsonData.length > 0) {
                 const firstRow = jsonData[0];
                 const keys = Object.keys(firstRow);
                 
                 const skuKey = keys.find(key => key.toLowerCase().includes('sku'));
-                const descKey = keys.find(key => key.toLowerCase().includes('descrip'));
+                const descKey = keys.find(key => key.toLowerCase().includes('descrip') || key.toLowerCase().includes('desc'));
                 
                 if (skuKey && descKey) {
                     jsonData.forEach(row => {
                         const sku = row[skuKey];
                         const descripcion = row[descKey];
                         if (sku && descripcion) {
-                            productCatalog[sku] = { descripcion: descripcion };
+                            newCatalog[sku] = { descripcion: descripcion };
                         }
                     });
                 } else {
@@ -514,9 +681,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
             }
-            
+
+            productCatalog = newCatalog;
             saveToLocalStorage('productCatalog', productCatalog);
             updateDatalist();
+
+            if (firebaseEnabled) {
+                await catalogRef.set(productCatalog);
+            }
+
             alert('Catálogo de productos cargado exitosamente.');
         };
         
@@ -536,10 +709,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function clearData(dataKey, confirmationMessage) {
-        if (confirm(confirmationMessage)) {
-            localStorage.removeItem(dataKey);
-            eval(`${dataKey} = []`);
+    // --- Clear data (local + firebase) ---
+    async function clearData(dataKey, confirmationMessage) {
+        if (!confirm(confirmationMessage)) return;
+
+        if (firebaseEnabled) {
+            if (dataKey === 'pickingData') {
+                await picksRef.remove();
+            } else if (dataKey === 'almacenData') {
+                await almacenRef.remove();
+            } else if (dataKey === 'movimientosData') {
+                await movimientosRef.remove();
+            }
+            // firebase listeners se encargarán de limpiar localStorage y UI
+        } else {
+            if (dataKey === 'pickingData') {
+                localStorage.removeItem('pickingData');
+                pickingData = [];
+            } else if (dataKey === 'almacenData') {
+                localStorage.removeItem('almacenData');
+                almacenData = [];
+            } else if (dataKey === 'movimientosData') {
+                localStorage.removeItem('movimientosData');
+                movimientosData = [];
+            }
             renderData();
         }
     }
@@ -548,6 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clear-almacen-btn').addEventListener('click', () => clearData('almacenData', '¿Estás seguro de que quieres borrar todos los datos de Almacén?'));
     document.getElementById('clear-movimientos-btn').addEventListener('click', () => clearData('movimientosData', '¿Estás seguro de que quieres borrar todos los datos de Movimientos?'));
 
+    // --- Export helpers (no cambian) ---
     function exportToCsv(filename, data, columns) {
         const csvRows = [];
         const bom = '\uFEFF';
@@ -573,7 +767,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.removeChild(link);
     }
 
-    // ---------- CORRECCIÓN: agrego recolección/agrupación de ubicaciones ----------
     function aggregateAndExport(dataArray, filenamePrefix) {
         const today = new Date().toISOString().slice(0, 10);
         const aggregatedData = {};
@@ -583,14 +776,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     SKU: item.sku,
                     CANTIDAD: 0,
                     FECHA: item.fecha ? item.fecha.split(',')[0] : '',
-                    UBICACIONES: [] // almacenamos un array temporal de ubicaciones
+                    UBICACIONES: []
                 };
             }
             aggregatedData[item.sku].CANTIDAD += item.cantidad || 0;
 
             const ubic = item.ubicacion ? String(item.ubicacion).trim() : '';
             if (ubic) {
-                // agregamos solo si no está ya presente (evita duplicados)
                 if (!aggregatedData[item.sku].UBICACIONES.includes(ubic)) {
                     aggregatedData[item.sku].UBICACIONES.push(ubic);
                 }
@@ -604,7 +796,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 CANTIDAD: cantidad,
                 TXT: `${item.SKU},${cantidad}`,
                 FECHA: item.FECHA,
-                // convertimos el array de ubicaciones a string; uso " ; " como separador
                 UBICACIONES: item.UBICACIONES.length ? item.UBICACIONES.join(' ; ') : ''
             };
         });
@@ -619,7 +810,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         exportToCsv(`${filenamePrefix}_${today}.csv`, dataToExport, columns);
     }
-    // ------------------------------------------------------------------------------
 
     document.getElementById('export-picking-btn').addEventListener('click', () => aggregateAndExport(pickingData, 'Picking'));
     document.getElementById('export-almacen-btn').addEventListener('click', () => aggregateAndExport(almacenData, 'Almacén'));
@@ -662,7 +852,16 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
         renderTable('movimientos-data', movimientosData, movimientosColumns, 'movimientosData');
     }
-    
-    renderData();
-    updateDatalist();
+
+    // --- Inicialización ---
+    // Si hay firebaseConfig y firebase está cargado, inicializo firebase; si no, cargo localStorage
+    initFirebase();
+
+    // Si Firebase no quedó disponible en 2s (ej: config null), aseguro carga local
+    setTimeout(() => {
+        if (!firebaseEnabled && (!pickingData.length && !almacenData.length && !movimientosData.length && Object.keys(productCatalog).length === 0)) {
+            loadFromLocalStorageAll();
+            renderData();
+        }
+    }, 1500);
 });
