@@ -6,10 +6,39 @@
     <title>Vaxel S.A. - Gestión de Inventario</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <!-- Usamos ZXing como fallback (CDN). No cargamos Quagga. -->
+    <!-- ZXing fallback + util libs -->
     <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.0.11/umd/index.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
     <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+
+    <!-- Firebase (compat API para facilitar integración) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+
+    <!-- NOTA: pegá tu firebaseConfig en la variable firebaseConfig dentro del siguiente script -->
+    <script>
+      // --- PASTE TU CONFIGURACIÓN FIREBASE AQUÍ ---
+      // Ejemplo (reemplazá con tus valores reales):
+      // const firebaseConfig = {
+      //   apiKey: "XXXX",
+      //   authDomain: "project-id.firebaseapp.com",
+      //   databaseURL: "https://project-id-default-rtdb.firebaseio.com",
+      //   projectId: "project-id",
+      //   storageBucket: "project-id.appspot.com",
+      //   messagingSenderId: "XXXX",
+      //   appId: "1:XXXX:web:YYYY"
+      // };
+
+      const firebaseConfig = /* /TU-FIREBASE-CONFIG-AQUI/ */ null;
+
+      // Si firebaseConfig es null, la app quedará en modo local (localStorage only).
+      if (firebaseConfig) {
+        firebase.initializeApp(firebaseConfig);
+      } else {
+        console.warn('Firebase no inicializado — funcionando en modo localStorage (pega firebaseConfig en index.html).');
+      }
+    </script>
 </head>
 <body>
 
@@ -33,7 +62,6 @@
             <button id="clear-movimientos-btn" class="btn btn-danger">Limpiar Movimientos</button>
         </div>
 
-        <!-- Nuevo switch -->
         <div class="menu-section">
             <h3>Opciones</h3>
             <label class="switch-label">
@@ -41,6 +69,11 @@
                 <span class="switch-slider"></span>
                 Desactivar requisito de ubicaciones
             </label>
+        </div>
+
+        <div class="menu-section">
+            <h3>Estado Firebase</h3>
+            <p id="firebase-status">Verificando...</p>
         </div>
     </aside>
 
@@ -85,7 +118,7 @@
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Guardar</button>
-                    <button id="export-picking-btn" class="btn">Exportar Picking</button>
+                    <button id="export-picking-btn" class="btn" type="button">Exportar Picking</button>
                 </div>
             </form>
             <div id="picking-data" class="data-view"></div>
@@ -130,7 +163,7 @@
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Guardar</button>
-                    <button id="export-almacen-btn" class="btn">Exportar Almacén</button>
+                    <button id="export-almacen-btn" class="btn" type="button">Exportar Almacén</button>
                 </div>
             </form>
             <div id="almacen-data" class="data-view"></div>
@@ -166,7 +199,7 @@
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Registrar Movimiento</button>
-                    <button id="export-movimientos-btn" class="btn">Exportar Movimientos</button>
+                    <button id="export-movimientos-btn" class="btn" type="button">Exportar Movimientos</button>
                 </div>
             </form>
             <div id="movimientos-data" class="data-view"></div>
