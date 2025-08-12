@@ -464,28 +464,37 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('load-file-btn').addEventListener('click', () => {
     const fileInput = document.getElementById('file-input');
     const file = fileInput.files[0];
-    if (!file) { alert('Por favor seleccioná un archivo'); return; }
+    if (!file) { showDialog('Por favor seleccioná un archivo'); return; }
     const fname = file.name;
     const ext = fname.split('.').pop().toLowerCase();
     const fr = new FileReader();
     fr.onload = async (e) => {
       let jsonData;
-      if (ext === 'xlsx') {
-        const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        const first = wb.SheetNames[0];
-        jsonData = XLSX.utils.sheet_to_json(wb.Sheets[first]);
-      } else if (ext === 'csv') {
-        const parsed = Papa.parse(e.target.result, { header: true });
-        jsonData = parsed.data;
-      } else { alert('Formato no soportado'); return; }
+      try {
+        if (ext === 'xlsx') {
+          const data = new Uint8Array(e.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          const first = wb.SheetNames[0];
+          jsonData = XLSX.utils.sheet_to_json(wb.Sheets[first]);
+        } else if (ext === 'csv') {
+          const parsed = Papa.parse(e.target.result, { header: true });
+          jsonData = parsed.data;
+        } else {
+          showDialog('Formato de archivo no soportado. Por favor usa .csv o .xlsx');
+          return;
+        }
+      } catch (err) {
+        showDialog('Error al leer el archivo. Por favor, revisa el formato.');
+        console.error('Error parsing file:', err);
+        return;
+      }
 
       const newCatalog = {};
       if (jsonData.length > 0) {
         const keys = Object.keys(jsonData[0]);
         const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
         const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
-        if (!skuKey || !descKey) { alert('Archivo sin columnas SKU/Descripcion'); return; }
+        if (!skuKey || !descKey) { showDialog('Archivo sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.'); return; }
         jsonData.forEach(row => {
           const sku = row[skuKey];
           const descripcion = row[descKey];
@@ -495,8 +504,20 @@ document.addEventListener('DOMContentLoaded', () => {
       productCatalog = newCatalog;
       saveToLocalStorage('productCatalog', productCatalog);
       updateDatalist();
-      if (firebaseEnabled) await catalogRef.set(productCatalog);
-      await showDialog('Catálogo cargado correctamente');
+
+      if (firebaseEnabled) {
+        try {
+          await catalogRef.set(productCatalog);
+          console.log('Catálogo subido a Firebase correctamente');
+        } catch(err) {
+          console.error('Error al subir catálogo a Firebase:', err);
+          showDialog('El catálogo se guardó localmente, pero hubo un error al subirlo a Firebase. Intenta de nuevo.');
+          return;
+        }
+      }
+
+      // El diálogo se muestra SÓLO cuando todo el proceso (local y Firebase) termina.
+      showDialog('Catálogo cargado correctamente');
     };
     if (ext === 'xlsx') fr.readAsArrayBuffer(file); else fr.readAsText(file);
   });
@@ -606,12 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Init
+  loadFromLocalStorageAll(); // Ahora siempre se carga desde localStorage primero para una mejor UX
   initFirebase();
-  setTimeout(() => {
-    if (!firebaseEnabled && !pickingData.length && !almacenData.length && !movimientosData.length && Object.keys(productCatalog).length === 0) {
-      loadFromLocalStorageAll();
-      renderData();
-    }
-  }, 1200);
 
 });
