@@ -71,6 +71,46 @@ document.addEventListener('DOMContentLoaded', () => {
       firebaseEnabled = true;
       firebaseStatus.textContent = 'Conectado a Firebase (Realtime DB)';
       setupFirebaseListeners();
+      try {
+        const storageRef = firebase.storage().ref('catalog');
+        const list = await storageRef.listAll();
+        if (list.items.length > 0) {
+          const url = await list.items[0].getDownloadURL();
+          const resp = await fetch(url);
+          const blob = await resp.blob();
+          const ext = list.items[0].name.split('.').pop().toLowerCase();
+          let jsonData;
+          if (ext === 'xlsx') {
+            const data = await blob.arrayBuffer();
+            const wb = XLSX.read(new Uint8Array(data), { type: 'array' });
+            const first = wb.SheetNames[0];
+            jsonData = XLSX.utils.sheet_to_json(wb.Sheets[first]);
+          } else if (ext === 'csv') {
+            const text = await blob.text();
+            const parsed = Papa.parse(text, { header: true });
+            jsonData = parsed.data;
+          }
+          const newCatalog = {};
+          if (jsonData && jsonData.length > 0) {
+            const keys = Object.keys(jsonData[0]);
+            const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
+            const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
+            if (skuKey && descKey) {
+              jsonData.forEach(row => {
+                const sku = row[skuKey];
+                const descripcion = row[descKey];
+                if (sku) newCatalog[sku] = { descripcion: descripcion || '' };
+              });
+              productCatalog = newCatalog;
+              saveToLocalStorage('productCatalog', productCatalog);
+              updateDatalist();
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('No se pudo cargar catálogo desde Storage:', err);
+      }
+
     } catch (err) {
       console.error('Error inicializando Firebase:', err);
       firebaseEnabled = false;
@@ -461,7 +501,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Carga catálogo
-  document.getElementById('load-file-btn').addEventListener('click', () => {
+  
+document.getElementById('load-file-btn').addEventListener('click', () => {
     const fileInput = document.getElementById('file-input');
     const file = fileInput.files[0];
     if (!file) { alert('Por favor seleccioná un archivo'); return; }
@@ -495,9 +536,20 @@ document.addEventListener('DOMContentLoaded', () => {
       productCatalog = newCatalog;
       saveToLocalStorage('productCatalog', productCatalog);
       updateDatalist();
-      if (firebaseEnabled) await catalogRef.set(productCatalog);
-      alert('Catálogo cargado');
+      if (firebaseEnabled) {
+        await catalogRef.set(productCatalog);
+        try {
+          const storageRef = firebase.storage().ref('catalog/catalog_file.' + ext);
+          await storageRef.put(file);
+        } catch (err) {
+          console.error('Error subiendo archivo a Storage:', err);
+        }
+      }
+      showDialog('Catálogo cargado correctamente', [{label:'OK', value:true}]);
     };
+    if (ext === 'xlsx') fr.readAsArrayBuffer(file); else fr.readAsText(file);
+  });
+
     if (ext === 'xlsx') fr.readAsArrayBuffer(file); else fr.readAsText(file);
   });
 
