@@ -12,12 +12,12 @@
   <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
   <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
 
-  <!-- Firebase compat API (usar compat para HTML sin bundler) -->
+  <!-- Firebase compat API -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
 
-  <!-- -- PONÉ TU CONFIG ACA (YA la dejé con la que pegaste) -- -->
   <script>
     const firebaseConfig = {
       apiKey: "AIzaSyAV4g9ctk9_LzYmGr5ETClPUkZWVSBpkZk",
@@ -30,15 +30,12 @@
       measurementId: "G-W6E4215CQ4"
     };
 
-    // Inicializo Firebase usando la API compat que cargamos arriba
     if (firebaseConfig && typeof firebase !== 'undefined') {
       try {
         firebase.initializeApp(firebaseConfig);
       } catch (e) {
-        console.warn('firebase.initializeApp error (posible re-inicialización):', e);
+        console.warn('firebase.initializeApp error:', e);
       }
-    } else {
-      console.warn('Firebase no disponible (scripts no cargados o firebaseConfig ausente).');
     }
   </script>
 
@@ -85,10 +82,10 @@
         <div class="input-group">
           <label for="picking-sku">SKU</label>
           <div class="input-with-scan">
-            <input type="text" id="picking-sku" list="sku-suggestions" placeholder="Ingresar SKU o escanear" required>
+            <input type="text" id="picking-sku" placeholder="Ingresar SKU o escanear" required>
             <button type="button" class="scan-btn" data-input="picking-sku"><span class="material-icons">qr_code_scanner</span></button>
           </div>
-          <datalist id="sku-suggestions"></datalist>
+          <div id="sku-suggestions-container"></div>
           <span id="picking-description" class="product-description"></span>
         </div>
         <div class="input-group">
@@ -132,7 +129,7 @@
         <div class="input-group">
           <label for="almacen-sku">SKU</label>
           <div class="input-with-scan">
-            <input type="text" id="almacen-sku" list="sku-suggestions" placeholder="Ingresar SKU o escanear" required>
+            <input type="text" id="almacen-sku" placeholder="Ingresar SKU o escanear" required>
             <button type="button" class="scan-btn" data-input="almacen-sku"><span class="material-icons">qr_code_scanner</span></button>
           </div>
           <span id="almacen-description" class="product-description"></span>
@@ -192,7 +189,7 @@
         <div class="input-group">
           <label for="movimiento-sku">SKU</label>
           <div class="input-with-scan">
-            <input type="text" id="movimiento-sku" list="sku-suggestions" placeholder="SKU del producto" required>
+            <input type="text" id="movimiento-sku" placeholder="SKU del producto" required>
             <button type="button" class="scan-btn" data-input="movimiento-sku"><span class="material-icons">qr_code_scanner</span></button>
           </div>
         </div>
@@ -223,7 +220,6 @@
     <button class="nav-btn" data-tab="movimientos-tab"><span class="material-icons">swap_horiz</span><span>Movimientos</span></button>
   </footer>
 
-  <!-- Tu app.js al final, después de inicializar Firebase -->
   <script src="app.js"></script>
 </body>
 </html>
