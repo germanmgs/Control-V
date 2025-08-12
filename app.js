@@ -39,62 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let movimientosData = [];
   let productCatalog = {};
 
-  function isStorageAvailable() {
-    try {
-      return firebaseEnabled && typeof firebase !== 'undefined' && firebase.storage && typeof firebase.storage === 'function';
-    } catch (e) { return false; }
-  }
-
-  async function loadCatalogFromStorageIfAvailable() {
-    if (!isStorageAvailable()) return;
-    try {
-      const tryPaths = ['catalog/catalog.xlsx', 'catalog/catalog.csv'];
-      let url = null, ext = null;
-      for (const p of tryPaths) {
-        try {
-          const ref = firebase.storage().ref(p);
-          url = await ref.getDownloadURL();
-          ext = p.split('.').pop().toLowerCase();
-          break;
-        } catch (e) {}
-      }
-      if (!url) return;
-      const resp = await fetch(url);
-      if (!resp.ok) return;
-      let jsonData = [];
-      if (ext === 'xlsx') {
-        const data = await resp.arrayBuffer();
-        const wb = XLSX.read(new Uint8Array(data), { type: 'array' });
-        const first = wb.SheetNames[0];
-        jsonData = XLSX.utils.sheet_to_json(wb.Sheets[first]);
-      } else if (ext === 'csv') {
-        const text = await resp.text();
-        const parsed = Papa.parse(text, { header: true });
-        jsonData = parsed.data;
-      }
-      const newCatalog = {};
-      if (jsonData && jsonData.length > 0) {
-        const keys = Object.keys(jsonData[0]);
-        const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
-        const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
-        if (skuKey && descKey) {
-          jsonData.forEach(row => {
-            const sku = row[skuKey];
-            const descripcion = row[descKey];
-            if (sku) newCatalog[sku] = { descripcion: descripcion || '' };
-          });
-          productCatalog = newCatalog;
-          saveToLocalStorage('productCatalog', productCatalog);
-          updateDatalist();
-          renderData();
-        }
-      }
-    } catch (err) {
-      console.warn('No se pudo cargar catálogo desde Storage:', err);
-    }
-  }
-
-
   // Firebase refs
   let firebaseEnabled = false;
   let dbRootRef = null;
@@ -127,7 +71,6 @@ document.addEventListener('DOMContentLoaded', () => {
       firebaseEnabled = true;
       firebaseStatus.textContent = 'Conectado a Firebase (Realtime DB)';
       setupFirebaseListeners();
-      loadCatalogFromStorageIfAvailable();
     } catch (err) {
       console.error('Error inicializando Firebase:', err);
       firebaseEnabled = false;
@@ -518,11 +461,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Carga catálogo
-  
-document.getElementById('load-file-btn').addEventListener('click', () => {
+  document.getElementById('load-file-btn').addEventListener('click', () => {
     const fileInput = document.getElementById('file-input');
     const file = fileInput.files[0];
-    if (!file) { showDialog('Por favor seleccioná un archivo', [{label:'OK', value:true}]); return; }
+    if (!file) { alert('Por favor seleccioná un archivo'); return; }
     const fname = file.name;
     const ext = fname.split('.').pop().toLowerCase();
     const fr = new FileReader();
@@ -531,42 +473,6 @@ document.getElementById('load-file-btn').addEventListener('click', () => {
       if (ext === 'xlsx') {
         const data = new Uint8Array(e.target.result);
         const wb = XLSX.read(data, { type: 'array' });
-        const first = wb.SheetNames[0];
-        jsonData = XLSX.utils.sheet_to_json(wb.Sheets[first]);
-      } else if (ext === 'csv') {
-        const parsed = Papa.parse(e.target.result, { header: true });
-        jsonData = parsed.data;
-      } else { showDialog('Formato no soportado', [{label:'OK', value:true}]); return; }
-
-      const newCatalog = {};
-      if (jsonData.length > 0) {
-        const keys = Object.keys(jsonData[0]);
-        const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
-        const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
-        if (!skuKey || !descKey) { showDialog('Archivo sin columnas SKU/Descripción', [{label:'OK', value:true}]); return; }
-        jsonData.forEach(row => {
-          const sku = row[skuKey];
-          const descripcion = row[descKey];
-          if (sku) newCatalog[sku] = { descripcion: descripcion || '' };
-        });
-      }
-      productCatalog = newCatalog;
-      saveToLocalStorage('productCatalog', productCatalog);
-      updateDatalist();
-      if (firebaseEnabled) await catalogRef.set(productCatalog);
-      if (isStorageAvailable()) {
-        try {
-          const storageRef = firebase.storage().ref('catalog/catalog.' + ext);
-          await storageRef.put(file);
-        } catch (err) {
-          console.warn('Error subiendo archivo a Storage:', err);
-        }
-      }
-      showDialog('Catálogo cargado correctamente', [{label:'OK', value:true}]);
-    };
-    if (ext === 'xlsx') fr.readAsArrayBuffer(file); else fr.readAsText(file);
-});
-
         const first = wb.SheetNames[0];
         jsonData = XLSX.utils.sheet_to_json(wb.Sheets[first]);
       } else if (ext === 'csv') {
@@ -590,7 +496,7 @@ document.getElementById('load-file-btn').addEventListener('click', () => {
       saveToLocalStorage('productCatalog', productCatalog);
       updateDatalist();
       if (firebaseEnabled) await catalogRef.set(productCatalog);
-      alert('Catálogo cargado');
+      await showDialog('Catálogo cargado correctamente');
     };
     if (ext === 'xlsx') fr.readAsArrayBuffer(file); else fr.readAsText(file);
   });
@@ -639,8 +545,7 @@ document.getElementById('load-file-btn').addEventListener('click', () => {
     document.body.removeChild(link);
   }
 
-  
-function aggregateAndExport(dataArray, filenamePrefix) {
+  function aggregateAndExport(dataArray, filenamePrefix) {
     const today = new Date().toISOString().slice(0,10);
     const agg = {};
     dataArray.forEach(item => {
@@ -651,9 +556,15 @@ function aggregateAndExport(dataArray, filenamePrefix) {
       }
     });
     const out = Object.values(agg).map(it => {
-      const ubicacionesStr = it.UBICACIONES.join(' , ');
-      const revisar = (it.UBICACIONES.length > 1) ? 'SI' : 'NO';
-      return { SKU: it.SKU, CANTIDAD: it.CANTIDAD, TXT: `${it.SKU},${it.CANTIDAD}`, FECHA: it.FECHA, UBICACIÓN: ubicacionesStr, REVISAR: revisar };
+      const hasMultipleLocations = it.UBICACIONES.length > 1;
+      return {
+        SKU: it.SKU,
+        CANTIDAD: it.CANTIDAD,
+        TXT: `${it.SKU},${it.CANTIDAD}`,
+        FECHA: it.FECHA,
+        UBICACIÓN: it.UBICACIONES.join(' ; '),
+        REVISAR: hasMultipleLocations ? 'SI' : 'NO'
+      };
     });
     const cols = [
       {key:'SKU',title:'SKU'},
@@ -666,13 +577,14 @@ function aggregateAndExport(dataArray, filenamePrefix) {
     exportToCsv(`${filenamePrefix}_${today}.csv`, out, cols);
   }
 
-
   document.getElementById('export-picking-btn').addEventListener('click', () => aggregateAndExport(pickingData, 'Picking'));
   document.getElementById('export-almacen-btn').addEventListener('click', () => aggregateAndExport(almacenData, 'Almacén'));
-  
-document.getElementById('export-movimientos-btn').addEventListener('click', () => {
+  document.getElementById('export-movimientos-btn').addEventListener('click', () => {
     const today = new Date().toISOString().slice(0,10);
-    const data = (movimientosData || []).map(m => ({ ...m, TXT: `${m.sku},${m.cantidad}` }));
+    const dataWithTxt = movimientosData.map(item => ({
+      ...item,
+      TXT: `${item.sku},${item.cantidad}`
+    }));
     const cols = [
       {key:'fecha',title:'FECHA'},
       {key:'origen',title:'ORIGEN'},
@@ -681,9 +593,8 @@ document.getElementById('export-movimientos-btn').addEventListener('click', () =
       {key:'cantidad',title:'CANTIDAD'},
       {key:'TXT',title:'TXT'}
     ];
-    exportToCsv(`Movimientos_${today}.csv`, data, cols);
+    exportToCsv(`Movimientos_${today}.csv`, dataWithTxt, cols);
   });
-
 
   function renderData() {
     const pickingCols = [{key:'fecha',title:'Fecha'},{key:'sku',title:'SKU'},{key:'ubicacion',title:'Ubicación'},{key:'cantidad',title:'Cantidad'}];
