@@ -1,4 +1,4 @@
-/* app.js - Versión Final con mejoras en Movimientos y botón borrar restaurado */
+/* app.js - Versión Final con mejoras en Movimientos, botón borrar y advertencias restauradas */
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -19,7 +19,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const origenSelect = document.getElementById('origen-select');
     const destinoSelect = document.getElementById('destino-select');
-    const movimientoSKU = document.getElementById('movimiento-sku');
 
     // NUEVOS CAMPOS MOVIMIENTOS
     const movimientoBoxes = document.getElementById('movimiento-boxes');
@@ -91,22 +90,19 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         picksRef.on('value', snapshot => {
-            const val = snapshot.val();
-            pickingData = objToArray(val);
+            pickingData = objToArray(snapshot.val());
             saveToLocalStorage('pickingData', pickingData);
             renderData();
         });
 
         almacenRef.on('value', snapshot => {
-            const val = snapshot.val();
-            almacenData = objToArray(val);
+            almacenData = objToArray(snapshot.val());
             saveToLocalStorage('almacenData', almacenData);
             renderData();
         });
 
         movimientosRef.on('value', snapshot => {
-            const val = snapshot.val();
-            movimientosData = objToArray(val);
+            movimientosData = objToArray(snapshot.val());
             saveToLocalStorage('movimientosData', movimientosData);
             renderData();
         });
@@ -174,7 +170,6 @@ document.addEventListener('DOMContentLoaded', () => {
         descriptionSpan.textContent = description || 'Descripción no encontrada';
     }
 
-    // FUNCIONES DE CÁLCULO TOTAL
     function setupTotalCalculation(boxesInput, perBoxInput, looseInput, totalDisplay) {
         function updateTotal() {
             const boxes = parseInt(boxesInput.value) || 0;
@@ -187,10 +182,8 @@ document.addEventListener('DOMContentLoaded', () => {
         looseInput.addEventListener('input', updateTotal);
     }
 
-    // Inicializar cálculo para movimientos
     setupTotalCalculation(movimientoBoxes, movimientoPerBox, movimientoLoose, movimientoTotalDisplay);
 
-    // Navegación
     navButtons.forEach(button => {
         button.addEventListener('click', () => {
             navButtons.forEach(b => b.classList.remove('active'));
@@ -202,11 +195,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Menu lateral
     menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
     closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
 
-    // FORMULARIOS
     function setupForm(form, dataKeyName) {
         const skuInput = form.querySelector('input[id$="-sku"]');
         const locationInput = form.querySelector('input[id$="-location"]');
@@ -225,17 +216,26 @@ document.addEventListener('DOMContentLoaded', () => {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const sku = skuInput.value.trim();
+            const location = locationInput ? locationInput.value.trim() : '';
             const cantidad = parseInt(totalDisplay.textContent) || 0;
             const fecha = new Date().toLocaleString();
 
             if (!sku) { await showDialog('Debe ingresar un SKU'); return; }
 
-            if (cantidad === 0) {
-                const ok = await showDialog('La cantidad ingresada es 0 ¿Continuar?', [
+            if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
+                const ok = await showDialog('ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?', [
                     { label: 'No', value: false },
                     { label: 'Sí', value: true }
                 ]);
                 if (!ok) return;
+            }
+
+            if (cantidad === 0) {
+                const ok2 = await showDialog('La cantidad ingresada es 0 ¿Continuar?', [
+                    { label: 'No', value: false },
+                    { label: 'Sí', value: true }
+                ]);
+                if (!ok2) return;
             }
 
             let dataArray;
@@ -247,7 +247,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (dataKeyName === 'movimientosData') {
                 itemToUpdate = dataArray.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
             } else {
-                const location = locationInput ? locationInput.value.trim() : '';
                 itemToUpdate = dataArray.find(it => it.sku === sku && it.ubicacion === location);
             }
 
@@ -265,7 +264,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (dataKeyName === 'movimientosData') {
                         await ref.push({ fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad });
                     } else {
-                        const location = locationInput ? locationInput.value.trim() : '';
                         await ref.push({ fecha, sku, ubicacion: location, cantidad });
                     }
                 }
@@ -279,7 +277,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
                         });
                     } else {
-                        const location = locationInput ? locationInput.value.trim() : '';
                         dataArray.push({
                             fecha, sku, ubicacion: location, cantidad,
                             _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
@@ -317,7 +314,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- RESTAURADO: renderTable con botón eliminar ---
     function renderTable(containerId, data, columns, dataKey) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
