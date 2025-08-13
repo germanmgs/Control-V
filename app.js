@@ -1,4 +1,4 @@
-/* app.js - Versión compatible con Excel desde GitHub */
+/* app.js - Versión Final */
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -38,7 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let productCatalog = {};
 
     // URL del catálogo en GitHub
-    const githubCatalogUrl = 'https://github.com/germanmgs/Control-V/raw/refs/heads/main/Catalogo.xlsx';
+    // Esta es la URL corregida para el "raw content"
+    const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
 
     // Firebase refs
     let firebaseEnabled = false;
@@ -116,7 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('Error al obtener el catálogo de GitHub. Código de estado: ' + response.status);
             }
             const data = await response.arrayBuffer();
-            const wb = XLSX.read(data, { type: 'array' });
+            const wb = XLSX.read(data, {
+                type: 'array'
+            });
             const firstSheet = wb.SheetNames[0];
             const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet]);
 
@@ -125,11 +128,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const keys = Object.keys(jsonData[0]);
                 const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
                 const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
-                if (!skuKey || !descKey) { showDialog('Archivo de Excel sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.'); return; }
+                if (!skuKey || !descKey) {
+                    showDialog('Archivo de Excel sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.');
+                    return;
+                }
                 jsonData.forEach(row => {
                     const sku = row[skuKey];
                     const descripcion = row[descKey];
-                    if (sku) newCatalog[sku] = { descripcion: descripcion || '' };
+                    if (sku) newCatalog[sku] = {
+                        descripcion: descripcion || ''
+                    };
                 });
             }
 
@@ -145,11 +153,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // localStorage helpers
     function saveToLocalStorage(key, data) {
-        try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { console.warn(e); }
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {
+            console.warn(e);
+        }
     }
+
     function loadFromLocalStorage(key, defaultVal) {
-        try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : defaultVal; } catch (e) { return defaultVal; }
+        try {
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw) : defaultVal;
+        } catch (e) {
+            return defaultVal;
+        }
     }
+
     function loadFromLocalStorageAll() {
         pickingData = loadFromLocalStorage('pickingData', []);
         almacenData = loadFromLocalStorage('almacenData', []);
@@ -210,9 +229,16 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (dataKey === 'almacenData') await almacenRef.child(key).remove();
             else if (dataKey === 'movimientosData') await movimientosRef.child(key).remove();
         } else {
-            if (dataKey === 'pickingData') { pickingData = pickingData.filter(it => it._key !== key); saveToLocalStorage('pickingData', pickingData); }
-            else if (dataKey === 'almacenData') { almacenData = almacenData.filter(it => it._key !== key); saveToLocalStorage('almacenData', almacenData); }
-            else if (dataKey === 'movimientosData') { movimientosData = movimientosData.filter(it => it._key !== key); saveToLocalStorage('movimientosData', movimientosData); }
+            if (dataKey === 'pickingData') {
+                pickingData = pickingData.filter(it => it._key !== key);
+                saveToLocalStorage('pickingData', pickingData);
+            } else if (dataKey === 'almacenData') {
+                almacenData = almacenData.filter(it => it._key !== key);
+                saveToLocalStorage('almacenData', almacenData);
+            } else if (dataKey === 'movimientosData') {
+                movimientosData = movimientosData.filter(it => it._key !== key);
+                saveToLocalStorage('movimientosData', movimientosData);
+            }
             renderData();
         }
     }
@@ -261,9 +287,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopScanner() {
-        if (videoElem && !videoElem.paused) try { videoElem.pause(); } catch (e) {}
-        if (zxingCodeReader && zxingCodeReader.reset) try { zxingCodeReader.reset(); } catch (e) {}
-        if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); videoStream = null; }
+        if (videoElem && !videoElem.paused) try {
+            videoElem.pause();
+        } catch (e) {}
+        if (zxingCodeReader && zxingCodeReader.reset) try {
+            zxingCodeReader.reset();
+        } catch (e) {}
+        if (videoStream) {
+            videoStream.getTracks().forEach(t => t.stop());
+            videoStream = null;
+        }
         scannerModal.classList.remove('open');
         scannerContainer.innerHTML = '';
         videoElem = null;
@@ -337,7 +370,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (currentScanInput) {
                                 currentScanInput.value = result.text;
                                 currentScanInput.dispatchEvent(new Event('input'));
-                                try { zxingCodeReader.reset(); } catch (e) {}
+                                try {
+                                    zxingCodeReader.reset();
+                                } catch (e) {}
                                 stopScanner();
                             }
                         }
