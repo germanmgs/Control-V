@@ -1,222 +1,224 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Vaxel S.A. - Gestión de Inventario</title>
-  <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Vaxel S.A. - Gestión de Inventario</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
-  <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.0.11/umd/index.min.js"></script>
-  <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
-  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.0.11/umd/index.min.js"></script>
+    <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
 
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyAV4g9ctk9_LzYmGr5ETClPUkZWVSBpkZk",
-      authDomain: "stock-a31b8.firebaseapp.com",
-      databaseURL: "https://stock-a31b8-default-rtdb.firebaseio.com",
-      projectId: "stock-a31b8",
-      storageBucket: "stock-a31b8.firebasestorage.app",
-      messagingSenderId: "586438978060",
-      appId: "1:586438978060:web:148e66263c61656c071c29",
-      measurementId: "G-W6E4215CQ4"
-    };
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyAV4g9ctk9_LzYmGr5ETClPUkZWVSBpkZk",
+            authDomain: "stock-a31b8.firebaseapp.com",
+            databaseURL: "https://stock-a31b8-default-rtdb.firebaseio.com",
+            projectId: "stock-a31b8",
+            storageBucket: "stock-a31b8.firebasestorage.app",
+            messagingSenderId: "586438978060",
+            appId: "1:586438978060:web:148e66263c61656c071c29",
+            measurementId: "G-W6E4215CQ4"
+        };
 
-    // Inicializo Firebase usando la API compat que cargamos arriba
-    if (firebaseConfig && typeof firebase !== 'undefined') {
-      try {
-        firebase.initializeApp(firebaseConfig);
-      } catch (e) {
-        console.warn('firebase.initializeApp error (posible re-inicialización):', e);
-      }
-    } else {
-      console.warn('Firebase no disponible (scripts no cargados o firebaseConfig ausente).');
-    }
-  </script>
+        if (firebaseConfig && typeof firebase !== 'undefined') {
+            try {
+                firebase.initializeApp(firebaseConfig);
+            } catch (e) {
+                console.warn('firebase.initializeApp error (posible re-inicialización):', e);
+            }
+        } else {
+            console.warn('Firebase no disponible (scripts no cargados o firebaseConfig ausente).');
+        }
+    </script>
 
 </head>
+
 <body>
-  <header>
-    <button id="menu-btn" class="icon-btn"><span class="material-icons">menu</span></button>
-    <h1>Vaxel S.A.</h1>
-  </header>
+    <header>
+        <button id="menu-btn" class="icon-btn"><span class="material-icons">menu</span></button>
+        <h1>Vaxel S.A.</h1>
+    </header>
 
-  <aside id="side-menu">
-    <button id="close-menu-btn" class="icon-btn"><span class="material-icons">close</span></button>
-    <h2>Configuración</h2>
-    <div class="menu-section">
-      <h3>Cargar Catálogo de Productos</h3>
-      <input type="file" id="file-input" accept=".csv, .xlsx">
-      <button id="load-file-btn" class="btn">Cargar Catálogo</button>
-    </div>
-    <div class="menu-section">
-      <h3>Limpiar Datos</h3>
-      <button id="clear-picking-btn" class="btn btn-danger">Limpiar Picking</button>
-      <button id="clear-almacen-btn" class="btn btn-danger">Limpiar Almacén</button>
-      <button id="clear-movimientos-btn" class="btn btn-danger">Limpiar Movimientos</button>
-    </div>
-    <div class="menu-section">
-      <h3>Opciones</h3>
-      <label class="switch-label">
-        <input type="checkbox" id="toggle-location-requirement">
-        <span class="switch-slider"></span>
-        Desactivar requisito de ubicaciones
-      </label>
-    </div>
-    <div class="menu-section">
-      <h3>Estado Firebase</h3>
-      <p id="firebase-status">Verificando...</p>
-    </div>
-  </aside>
+    <aside id="side-menu">
+        <button id="close-menu-btn" class="icon-btn"><span class="material-icons">close</span></button>
+        <h2>Configuración</h2>
+        <div class="menu-section">
+            <h3>Cargar Catálogo de Productos</h3>
+            <p>El catálogo se carga desde GitHub al iniciar la app.</p>
+            <button id="load-file-btn" class="btn">Recargar Catálogo desde GitHub</button>
+        </div>
+        <div class="menu-section">
+            <h3>Limpiar Datos</h3>
+            <button id="clear-picking-btn" class="btn btn-danger">Limpiar Picking</button>
+            <button id="clear-almacen-btn" class="btn btn-danger">Limpiar Almacén</button>
+            <button id="clear-movimientos-btn" class="btn btn-danger">Limpiar Movimientos</button>
+        </div>
+        <div class="menu-section">
+            <h3>Opciones</h3>
+            <label class="switch-label">
+                <input type="checkbox" id="toggle-location-requirement">
+                <span class="switch-slider"></span>
+                Desactivar requisito de ubicaciones
+            </label>
+        </div>
+        <div class="menu-section">
+            <h3>Estado Firebase</h3>
+            <p id="firebase-status">Verificando...</p>
+        </div>
+    </aside>
 
-  <main>
-    <div id="picking-tab" class="tab-content active">
-      <h2>Picking</h2>
-      <form id="picking-form" class="stock-form">
-        <div class="input-group">
-          <label for="picking-sku">SKU</label>
-          <div class="input-with-scan">
-            <input type="text" id="picking-sku" list="sku-suggestions" placeholder="Ingresar SKU o escanear" required>
-            <button type="button" class="scan-btn" data-input="picking-sku"><span class="material-icons">qr_code_scanner</span></button>
-          </div>
-          <datalist id="sku-suggestions"></datalist>
-          <span id="picking-description" class="product-description"></span>
+    <main>
+        <div id="picking-tab" class="tab-content active">
+            <h2>Picking</h2>
+            <form id="picking-form" class="stock-form">
+                <div class="input-group">
+                    <label for="picking-sku">SKU</label>
+                    <div class="input-with-scan">
+                        <input type="text" id="picking-sku" list="sku-suggestions" placeholder="Ingresar SKU o escanear" required>
+                        <button type="button" class="scan-btn" data-input="picking-sku"><span class="material-icons">qr_code_scanner</span></button>
+                    </div>
+                    <datalist id="sku-suggestions"></datalist>
+                    <span id="picking-description" class="product-description"></span>
+                </div>
+                <div class="input-group">
+                    <label for="picking-location">Ubicación</label>
+                    <div class="input-with-scan">
+                        <input type="text" id="picking-location" placeholder="Ej: 1-20-3-4">
+                        <button type="button" class="scan-btn" data-input="picking-location"><span class="material-icons">qr_code_scanner</span></button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>Cantidad por Cajas</label>
+                    <div class="quantity-inputs">
+                        <span class="material-icons">inventory_2</span>
+                        <input type="text" id="picking-boxes" placeholder="Cajas">
+                        <span>x</span>
+                        <input type="text" id="picking-per-box" placeholder="Unidades/caja">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>Unidades Sueltas</label>
+                    <div class="quantity-inputs">
+                        <span class="material-icons">add_box</span>
+                        <input type="text" id="picking-loose" placeholder="Sueltas">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <p>Total: <strong id="picking-total">0</strong></p>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                    <button id="export-picking-btn" class="btn" type="button">Exportar Picking</button>
+                </div>
+            </form>
+            <div id="picking-data" class="data-view"></div>
         </div>
-        <div class="input-group">
-          <label for="picking-location">Ubicación</label>
-          <div class="input-with-scan">
-            <input type="text" id="picking-location" placeholder="Ej: 1-20-3-4">
-            <button type="button" class="scan-btn" data-input="picking-location"><span class="material-icons">qr_code_scanner</span></button>
-          </div>
+
+        <div id="almacen-tab" class="tab-content">
+            <h2>Almacén</h2>
+            <form id="almacen-form" class="stock-form">
+                <div class="input-group">
+                    <label for="almacen-sku">SKU</label>
+                    <div class="input-with-scan">
+                        <input type="text" id="almacen-sku" list="sku-suggestions" placeholder="Ingresar SKU o escanear" required>
+                        <button type="button" class="scan-btn" data-input="almacen-sku"><span class="material-icons">qr_code_scanner</span></button>
+                    </div>
+                    <span id="almacen-description" class="product-description"></span>
+                </div>
+                <div class="input-group">
+                    <label for="almacen-location">Ubicación</label>
+                    <div class="input-with-scan">
+                        <input type="text" id="almacen-location" placeholder="Ej: 1-20-3-4">
+                        <button type="button" class="scan-btn" data-input="almacen-location"><span class="material-icons">qr_code_scanner</span></button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>Cantidad por Cajas</label>
+                    <div class="quantity-inputs">
+                        <span class="material-icons">inventory_2</span>
+                        <input type="text" id="almacen-boxes" placeholder="Cajas">
+                        <span>x</span>
+                        <input type="text" id="almacen-per-box" placeholder="Unidades/caja">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>Unidades Sueltas</label>
+                    <div class="quantity-inputs">
+                        <span class="material-icons">add_box</span>
+                        <input type="text" id="almacen-loose" placeholder="Sueltas">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <p>Total: <strong id="almacen-total">0</strong></p>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                    <button id="export-almacen-btn" class="btn" type="button">Exportar Almacén</button>
+                </div>
+            </form>
+            <div id="almacen-data" class="data-view"></div>
         </div>
-        <div class="input-group">
-          <label>Cantidad por Cajas</label>
-          <div class="quantity-inputs">
-            <span class="material-icons">inventory_2</span>
-            <input type="text" id="picking-boxes" placeholder="Cajas">
-            <span>x</span>
-            <input type="text" id="picking-per-box" placeholder="Unidades/caja">
-          </div>
+
+        <div id="movimientos-tab" class="tab-content">
+            <h2>Movimientos</h2>
+            <form id="movimientos-form" class="stock-form">
+                <div class="input-group">
+                    <label for="origen-select">Origen</label>
+                    <select id="origen-select" required>
+                        <option value="Picking">Picking</option>
+                        <option value="Almacén">Almacén</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="destino-select">Destino</label>
+                    <select id="destino-select" required>
+                        <option value="Almacén">Almacén</option>
+                        <option value="Picking">Picking</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="movimiento-sku">SKU</label>
+                    <div class="input-with-scan">
+                        <input type="text" id="movimiento-sku" list="sku-suggestions" placeholder="SKU del producto" required>
+                        <button type="button" class="scan-btn" data-input="movimiento-sku"><span class="material-icons">qr_code_scanner</span></button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="movimiento-cantidad">Cantidad</label>
+                    <input type="text" id="movimiento-cantidad" placeholder="Cantidad a mover" required>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Registrar Movimiento</button>
+                    <button id="export-movimientos-btn" class="btn" type="button">Exportar Movimientos</button>
+                </div>
+            </form>
+            <div id="movimientos-data" class="data-view"></div>
         </div>
-        <div class="input-group">
-          <label>Unidades Sueltas</label>
-          <div class="quantity-inputs">
-            <span class="material-icons">add_box</span>
-            <input type="text" id="picking-loose" placeholder="Sueltas">
-          </div>
+
+    </main>
+
+    <div id="scanner-modal" class="modal">
+        <div class="modal-content">
+            <div id="scanner-container"></div>
+            <button id="stop-scanner-btn" class="btn btn-danger"><span class="material-icons">close</span> Detener Escáner</button>
         </div>
-        <div class="input-group">
-          <p>Total: <strong id="picking-total">0</strong></p>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Guardar</button>
-          <button id="export-picking-btn" class="btn" type="button">Exportar Picking</button>
-        </div>
-      </form>
-      <div id="picking-data" class="data-view"></div>
     </div>
 
-    <div id="almacen-tab" class="tab-content">
-      <h2>Almacén</h2>
-      <form id="almacen-form" class="stock-form">
-        <div class="input-group">
-          <label for="almacen-sku">SKU</label>
-          <div class="input-with-scan">
-            <input type="text" id="almacen-sku" list="sku-suggestions" placeholder="Ingresar SKU o escanear" required>
-            <button type="button" class="scan-btn" data-input="almacen-sku"><span class="material-icons">qr_code_scanner</span></button>
-          </div>
-          <span id="almacen-description" class="product-description"></span>
-        </div>
-        <div class="input-group">
-          <label for="almacen-location">Ubicación</label>
-          <div class="input-with-scan">
-            <input type="text" id="almacen-location" placeholder="Ej: 1-20-3-4">
-            <button type="button" class="scan-btn" data-input="almacen-location"><span class="material-icons">qr_code_scanner</span></button>
-          </div>
-        </div>
-        <div class="input-group">
-          <label>Cantidad por Cajas</label>
-          <div class="quantity-inputs">
-            <span class="material-icons">inventory_2</span>
-            <input type="text" id="almacen-boxes" placeholder="Cajas">
-            <span>x</span>
-            <input type="text" id="almacen-per-box" placeholder="Unidades/caja">
-          </div>
-        </div>
-        <div class="input-group">
-          <label>Unidades Sueltas</label>
-          <div class="quantity-inputs">
-            <span class="material-icons">add_box</span>
-            <input type="text" id="almacen-loose" placeholder="Sueltas">
-          </div>
-        </div>
-        <div class="input-group">
-          <p>Total: <strong id="almacen-total">0</strong></p>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Guardar</button>
-          <button id="export-almacen-btn" class="btn" type="button">Exportar Almacén</button>
-        </div>
-      </form>
-      <div id="almacen-data" class="data-view"></div>
-    </div>
+    <footer id="nav-bar">
+        <button class="nav-btn active" data-tab="picking-tab"><span class="material-icons">inventory</span><span>Picking</span></button>
+        <button class="nav-btn" data-tab="almacen-tab"><span class="material-icons">storage</span><span>Almacén</span></button>
+        <button class="nav-btn" data-tab="movimientos-tab"><span class="material-icons">swap_horiz</span><span>Movimientos</span></button>
+    </footer>
 
-    <div id="movimientos-tab" class="tab-content">
-      <h2>Movimientos</h2>
-      <form id="movimientos-form" class="stock-form">
-        <div class="input-group">
-          <label for="origen-select">Origen</label>
-          <select id="origen-select" required>
-            <option value="Picking">Picking</option>
-            <option value="Almacén">Almacén</option>
-          </select>
-        </div>
-        <div class="input-group">
-          <label for="destino-select">Destino</label>
-          <select id="destino-select" required>
-            <option value="Almacén">Almacén</option>
-            <option value="Picking">Picking</option>
-          </select>
-        </div>
-        <div class="input-group">
-          <label for="movimiento-sku">SKU</label>
-          <div class="input-with-scan">
-            <input type="text" id="movimiento-sku" list="sku-suggestions" placeholder="SKU del producto" required>
-            <button type="button" class="scan-btn" data-input="movimiento-sku"><span class="material-icons">qr_code_scanner</span></button>
-          </div>
-        </div>
-        <div class="input-group">
-          <label for="movimiento-cantidad">Cantidad</label>
-          <input type="text" id="movimiento-cantidad" placeholder="Cantidad a mover" required>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Registrar Movimiento</button>
-          <button id="export-movimientos-btn" class="btn" type="button">Exportar Movimientos</button>
-        </div>
-      </form>
-      <div id="movimientos-data" class="data-view"></div>
-    </div>
-
-  </main>
-
-  <div id="scanner-modal" class="modal">
-    <div class="modal-content">
-      <div id="scanner-container"></div>
-      <button id="stop-scanner-btn" class="btn btn-danger"><span class="material-icons">close</span> Detener Escáner</button>
-    </div>
-  </div>
-
-  <footer id="nav-bar">
-    <button class="nav-btn active" data-tab="picking-tab"><span class="material-icons">inventory</span><span>Picking</span></button>
-    <button class="nav-btn" data-tab="almacen-tab"><span class="material-icons">storage</span><span>Almacén</span></button>
-    <button class="nav-btn" data-tab="movimientos-tab"><span class="material-icons">swap_horiz</span><span>Movimientos</span></button>
-  </footer>
-
-  <script src="app.js"></script>
+    <script src="app.js"></script>
 </body>
+
 </html>
