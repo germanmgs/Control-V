@@ -76,6 +76,7 @@
     </aside>
 
     <main>
+        <!-- Picking -->
         <div id="picking-tab" class="tab-content active">
             <h2>Picking</h2>
             <form id="picking-form" class="stock-form">
@@ -122,6 +123,7 @@
             <div id="picking-data" class="data-view"></div>
         </div>
 
+        <!-- Almacén -->
         <div id="almacen-tab" class="tab-content">
             <h2>Almacén</h2>
             <form id="almacen-form" class="stock-form">
@@ -167,6 +169,7 @@
             <div id="almacen-data" class="data-view"></div>
         </div>
 
+        <!-- Movimientos -->
         <div id="movimientos-tab" class="tab-content">
             <h2>Movimientos</h2>
             <form id="movimientos-form" class="stock-form">
@@ -191,10 +194,27 @@
                         <button type="button" class="scan-btn" data-input="movimiento-sku"><span class="material-icons">qr_code_scanner</span></button>
                     </div>
                 </div>
+                <!-- NUEVOS CAMPOS -->
                 <div class="input-group">
-                    <label for="movimiento-cantidad">Cantidad</label>
-                    <input type="text" id="movimiento-cantidad" placeholder="Cantidad a mover" required>
+                    <label>Cantidad por Cajas</label>
+                    <div class="quantity-inputs">
+                        <span class="material-icons">inventory_2</span>
+                        <input type="text" id="movimiento-boxes" placeholder="Cajas">
+                        <span>x</span>
+                        <input type="text" id="movimiento-per-box" placeholder="Unidades/caja">
+                    </div>
                 </div>
+                <div class="input-group">
+                    <label>Unidades Sueltas</label>
+                    <div class="quantity-inputs">
+                        <span class="material-icons">add_box</span>
+                        <input type="text" id="movimiento-loose" placeholder="Sueltas">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <p>Total: <strong id="movimiento-total">0</strong></p>
+                </div>
+                <!-- FIN NUEVOS CAMPOS -->
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Registrar Movimiento</button>
                     <button id="export-movimientos-btn" class="btn" type="button">Exportar Movimientos</button>
