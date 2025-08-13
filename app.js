@@ -1,4 +1,4 @@
-/* app.js - Versión Final con mejoras en Movimientos */
+/* app.js - Versión Final con mejoras en Movimientos y botón borrar restaurado */
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -317,7 +317,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function renderTable(containerId, data, columns) {
+    // --- RESTAURADO: renderTable con botón eliminar ---
+    function renderTable(containerId, data, columns, dataKey) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
         if (!data || data.length === 0) {
@@ -334,6 +335,9 @@ document.addEventListener('DOMContentLoaded', () => {
             th.textContent = col.title;
             headerRow.appendChild(th);
         });
+        const thActions = document.createElement('th');
+        thActions.textContent = "Acción";
+        headerRow.appendChild(thActions);
         thead.appendChild(headerRow);
 
         data.forEach(item => {
@@ -343,6 +347,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 td.textContent = item[col.key] != null ? item[col.key] : '';
                 row.appendChild(td);
             });
+            const tdActions = document.createElement('td');
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '<span class="material-icons">delete_forever</span>';
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.onclick = () => deleteEntry(dataKey, item._key);
+            tdActions.appendChild(deleteBtn);
+            row.appendChild(tdActions);
             tbody.appendChild(row);
         });
 
@@ -351,26 +362,47 @@ document.addEventListener('DOMContentLoaded', () => {
         container.appendChild(table);
     }
 
+    async function deleteEntry(dataKey, key) {
+        if (!confirm('¿Estás seguro de que querés eliminar este registro?')) return;
+        if (firebaseEnabled) {
+            if (dataKey === 'pickingData') await picksRef.child(key).remove();
+            else if (dataKey === 'almacenData') await almacenRef.child(key).remove();
+            else if (dataKey === 'movimientosData') await movimientosRef.child(key).remove();
+        } else {
+            if (dataKey === 'pickingData') {
+                pickingData = pickingData.filter(it => it._key !== key);
+                saveToLocalStorage('pickingData', pickingData);
+            } else if (dataKey === 'almacenData') {
+                almacenData = almacenData.filter(it => it._key !== key);
+                saveToLocalStorage('almacenData', almacenData);
+            } else if (dataKey === 'movimientosData') {
+                movimientosData = movimientosData.filter(it => it._key !== key);
+                saveToLocalStorage('movimientosData', movimientosData);
+            }
+            renderData();
+        }
+    }
+
     function renderData() {
         renderTable('picking-data', pickingData, [
             { key: 'fecha', title: 'Fecha' },
             { key: 'sku', title: 'SKU' },
             { key: 'ubicacion', title: 'Ubicación' },
             { key: 'cantidad', title: 'Cantidad' }
-        ]);
+        ], 'pickingData');
         renderTable('almacen-data', almacenData, [
             { key: 'fecha', title: 'Fecha' },
             { key: 'sku', title: 'SKU' },
             { key: 'ubicacion', title: 'Ubicación' },
             { key: 'cantidad', title: 'Cantidad' }
-        ]);
+        ], 'almacenData');
         renderTable('movimientos-data', movimientosData, [
             { key: 'fecha', title: 'Fecha' },
             { key: 'origen', title: 'Origen' },
             { key: 'destino', title: 'Destino' },
             { key: 'sku', title: 'SKU' },
             { key: 'cantidad', title: 'Cantidad' }
-        ]);
+        ], 'movimientosData');
     }
 
     loadFromLocalStorageAll();
