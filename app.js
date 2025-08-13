@@ -227,7 +227,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (firebaseEnabled) {
             if (dataKey === 'pickingData') await picksRef.child(key).remove();
             else if (dataKey === 'almacenData') await almacenRef.child(key).remove();
-            else if (dataKey === 'movimientosData') await movimientosRef.child(key).remove();
+            else if (dataKey === 'movimientosData') {
+                if (Array.isArray(key)) {
+                    await Promise.all(key.map(k => movimientosRef.child(k).remove()));
+                } else {
+                    await movimientosRef.child(key).remove();
+                }
+            }
         } else {
             if (dataKey === 'pickingData') {
                 pickingData = pickingData.filter(it => it._key !== key);
@@ -236,7 +242,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 almacenData = almacenData.filter(it => it._key !== key);
                 saveToLocalStorage('almacenData', almacenData);
             } else if (dataKey === 'movimientosData') {
-                movimientosData = movimientosData.filter(it => it._key !== key);
+                if (Array.isArray(key)) {
+                    movimientosData = movimientosData.filter(it => !key.includes(it._key));
+                } else {
+                    movimientosData = movimientosData.filter(it => it._key !== key);
+                }
                 saveToLocalStorage('movimientosData', movimientosData);
             }
             renderData();
@@ -790,10 +800,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     destino: item.destino,
                     sku: item.sku,
                     cantidad: item.cantidad,
-                    _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    _key: [item._key] // Almacenar las claves originales en un array
                 };
             } else {
                 aggregated[key].cantidad += item.cantidad;
+                if (!aggregated[key]._key.includes(item._key)) {
+                     aggregated[key]._key.push(item._key);
+                }
             }
         });
         return Object.values(aggregated);
