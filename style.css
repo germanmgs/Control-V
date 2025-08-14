@@ -75,6 +75,8 @@ header h1 {
 
 .menu-section button {
     width: 80%;
+    margin-top: 0.5rem;
+    margin-bottom: 0.3rem;
 }
 
 .menu-section h3 {
@@ -486,6 +488,7 @@ tr:nth-child(even) {
 }
 
 }
+
 
 
 
