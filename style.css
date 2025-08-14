@@ -1,8 +1,8 @@
 :root {
-    --primary-color: #004d99;
+    --primary-color: #144758;
     --secondary-color: #f0f4f8;
     --text-color: #333;
-    --danger-color: #e74c3c;
+    --danger-color: #ff771c;
     --success-color: #2ecc71;
     --border-color: #ccc;
     --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -480,3 +480,4 @@ tr:nth-child(even) {
 }
 
 }
+
