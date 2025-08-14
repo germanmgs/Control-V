@@ -68,14 +68,13 @@ header h1 {
 }
 
 .menu-section {
-    margin-bottom: 1.5rem
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
 }
 
 .menu-section button {
-    width: 100%;
+    width: 80%;
 }
 
 .menu-section h3 {
@@ -487,6 +486,7 @@ tr:nth-child(even) {
 }
 
 }
+
 
 
 
