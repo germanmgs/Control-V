@@ -68,7 +68,7 @@ header h1 {
 }
 
 .menu-section {
-    margin-bottom: 1.5rem;
+    margin-bottom: 3rem;
 }
 
 .menu-section h3 {
@@ -480,4 +480,5 @@ tr:nth-child(even) {
 }
 
 }
+
 
