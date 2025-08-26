@@ -27,60 +27,66 @@ document.addEventListener('DOMContentLoaded', () => {
     let locationRequirementDisabled = false;
     toggleLocationRequirement.addEventListener('change', () => {
         locationRequirementDisabled = toggleLocationRequirement.checked;
-        if (locationRequirementDisabled) {
-            document.getElementById('picking-ubicacion').required = false;
-            document.getElementById('almacen-ubicacion').required = false;
-        } else {
-            document.getElementById('picking-ubicacion').required = true;
-            document.getElementById('almacen-ubicacion').required = true;
-        }
     });
 
-    // Estado de la aplicación
-    let catalogoSKU = [];
+    let currentScanInput = null;
+
+    // Datos locales
     let pickingData = [];
     let almacenData = [];
     let movimientosData = [];
-    let contarData = []; // Nueva variable para los datos de conteo
-    let firebaseEnabled = false;
-    let scanner = null;
-    let activeScannerInput = null;
+    let productCatalog = {};
 
-    // Firebase
+    // URL del catálogo en GitHub
+    // Esta es la URL corregida para el "raw content"
+    const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
+
+    // Firebase refs
+    let firebaseEnabled = false;
     let dbRootRef = null;
-    let pickingRef = null;
+    let picksRef = null;
     let almacenRef = null;
     let movimientosRef = null;
-    let contarRef = null; // Nueva referencia para Firebase
+
+    function isFirebaseAvailable() {
+        return (typeof firebase !== 'undefined') && (firebase) && (firebase.database) && (typeof firebaseConfig !== 'undefined') && firebaseConfig;
+    }
 
     async function initFirebase() {
-        if (firebaseEnabled) return;
+        if (!isFirebaseAvailable()) {
+            firebaseEnabled = false;
+            firebaseStatus.textContent = 'Firebase no configurado — modo local';
+            loadFromLocalStorageAll();
+            renderData();
+            return;
+        }
+
         try {
-            firebase.initializeApp(firebaseConfig);
             await firebase.auth().signInAnonymously();
             dbRootRef = firebase.database().ref('vaxel');
-            pickingRef = dbRootRef.child('picking');
+            picksRef = dbRootRef.child('picking');
             almacenRef = dbRootRef.child('almacen');
             movimientosRef = dbRootRef.child('movimientos');
-            contarRef = dbRootRef.child('contar'); // Inicialización de la nueva referencia
+
             firebaseEnabled = true;
-            firebaseStatus.textContent = "Firebase: Conectado";
-            console.log("Firebase conectado.");
+            firebaseStatus.textContent = 'Conectado a Firebase (Realtime DB)';
             setupFirebaseListeners();
         } catch (err) {
-            firebaseStatus.textContent = "Firebase: Error de Conexión";
-            console.error("Error al conectar a Firebase: ", err);
-            // Cargar datos desde localStorage si Firebase falla
-            pickingData = loadFromLocalStorage('pickingData') || [];
-            almacenData = loadFromLocalStorage('almacenData') || [];
-            movimientosData = loadFromLocalStorage('movimientosData') || [];
-            contarData = loadFromLocalStorage('contarData') || []; // Cargar datos de conteo
+            console.error('Error inicializando Firebase:', err);
+            firebaseEnabled = false;
+            firebaseStatus.textContent = 'Error Firebase - modo local';
+            loadFromLocalStorageAll();
             renderData();
         }
     }
 
     function setupFirebaseListeners() {
-        pickingRef.on('value', snapshot => {
+        const objToArray = (obj) => {
+            if (!obj) return [];
+            return Object.keys(obj).map(k => ({ ...obj[k], _key: k }));
+        };
+
+        picksRef.on('value', snapshot => {
             const val = snapshot.val();
             pickingData = objToArray(val);
             saveToLocalStorage('pickingData', pickingData);
@@ -92,7 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
             almacenData = objToArray(val);
             saveToLocalStorage('almacenData', almacenData);
             renderData();
-            updateMovementLocations();
         });
 
         movimientosRef.on('value', snapshot => {
@@ -101,342 +106,374 @@ document.addEventListener('DOMContentLoaded', () => {
             saveToLocalStorage('movimientosData', movimientosData);
             renderData();
         });
-
-        contarRef.on('value', snapshot => { // Listener para la nueva colección
-            const val = snapshot.val();
-            contarData = objToArray(val);
-            saveToLocalStorage('contarData', contarData);
-            renderData();
-        });
     }
 
-    // Funciones de utilidad
-    function objToArray(obj) {
-        if (!obj) return [];
-        return Object.keys(obj).map(key => ({ _key: key, ...obj[key] }));
+    // Funciones de carga de catálogo
+    async function loadCatalogFromGitHub() {
+        try {
+            showDialog('Cargando catálogo desde GitHub...');
+            const response = await fetch(githubCatalogUrl);
+            if (!response.ok) {
+                throw new Error('Error al obtener el catálogo de GitHub. Código de estado: ' + response.status);
+            }
+            const data = await response.arrayBuffer();
+            const wb = XLSX.read(data, {
+                type: 'array'
+            });
+            const firstSheet = wb.SheetNames[0];
+            const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet]);
+
+            const newCatalog = {};
+            if (jsonData.length > 0) {
+                const keys = Object.keys(jsonData[0]);
+                const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
+                const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
+                if (!skuKey || !descKey) {
+                    showDialog('Archivo de Excel sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.');
+                    return;
+                }
+                jsonData.forEach(row => {
+                    const sku = row[skuKey];
+                    const descripcion = row[descKey];
+                    if (sku) newCatalog[sku] = {
+                        descripcion: descripcion || ''
+                    };
+                });
+            }
+
+            productCatalog = newCatalog;
+            saveToLocalStorage('productCatalog', productCatalog);
+            updateDatalist();
+            showDialog('Catálogo de GitHub cargado correctamente.');
+        } catch (error) {
+            console.error('Error al cargar catálogo de GitHub:', error);
+            showDialog('Error al cargar catálogo de GitHub. ' + error.message);
+        }
     }
 
+    // localStorage helpers
     function saveToLocalStorage(key, data) {
         try {
             localStorage.setItem(key, JSON.stringify(data));
         } catch (e) {
-            console.warn("No se pudo guardar en localStorage.", e);
+            console.warn(e);
         }
     }
 
-    function loadFromLocalStorage(key) {
+    function loadFromLocalStorage(key, defaultVal) {
         try {
-            const data = localStorage.getItem(key);
-            return data ? JSON.parse(data) : null;
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw) : defaultVal;
         } catch (e) {
-            console.warn("No se pudo cargar desde localStorage.", e);
-            return null;
+            return defaultVal;
         }
     }
 
-    async function showDialog(message, buttons) {
-        return new Promise(resolve => {
-            const overlay = document.getElementById('custom-dialog-overlay');
-            const messageEl = document.getElementById('custom-dialog-message');
-            const actionsEl = document.getElementById('custom-dialog-actions');
-
-            messageEl.textContent = message;
-            actionsEl.innerHTML = '';
-            buttons.forEach(btnConfig => {
-                const btn = document.createElement('button');
-                btn.className = 'btn';
-                if (btnConfig.label === 'Si') btn.classList.add('btn-primary');
-                btn.textContent = btnConfig.label;
-                btn.onclick = () => {
-                    overlay.style.display = 'none';
-                    resolve(btnConfig.value);
-                };
-                actionsEl.appendChild(btn);
-            });
-            overlay.style.display = 'flex';
-        });
+    function loadFromLocalStorageAll() {
+        pickingData = loadFromLocalStorage('pickingData', []);
+        almacenData = loadFromLocalStorage('almacenData', []);
+        movimientosData = loadFromLocalStorage('movimientosData', []);
+        productCatalog = loadFromLocalStorage('productCatalog', {});
+        updateDatalist();
     }
 
-    // Lógica del Catálogo de SKUs
-    async function fetchCatalogo() {
-        try {
-            const response = await fetch('https://raw.githubusercontent.com/vaxel-sa/stock/main/vaxel-skus.csv');
-            const csv = await response.text();
-            const { data } = Papa.parse(csv, { header: true, dynamicTyping: true });
-            catalogoSKU = data.map(item => item.SKU).filter(sku => sku);
-            console.log("Catálogo de SKUs cargado.");
-        } catch (err) {
-            console.error("Error al cargar el catálogo de SKUs:", err);
-        }
-    }
-
-    // Lógica de los Formularios
-    pickingForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const sku = document.getElementById('picking-sku').value.toUpperCase().trim();
-        const ubicacion = document.getElementById('picking-ubicacion').value.toUpperCase().trim();
-        const cantidad = parseInt(document.getElementById('picking-cantidad').value);
-
-        if (locationRequirementDisabled && !ubicacion) {
-            const ok = await showDialog('La ubicación no se ha ingresado. ¿Continuar?', [{ label: 'No', value: false }, { label: 'Si', value: true }]);
-            if (!ok) return;
-        }
-
-        const newEntry = {
-            sku,
-            ubicacion,
-            cantidad,
-            fecha: new Date().toLocaleString()
-        };
-
-        if (firebaseEnabled) {
-            pickingRef.push(newEntry).catch(console.error);
-        } else {
-            pickingData.push({ ...newEntry, _key: `local-${Date.now()}` });
-            saveToLocalStorage('pickingData', pickingData);
-            renderData();
-        }
-        pickingForm.reset();
-    });
-
-    almacenForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const sku = document.getElementById('almacen-sku').value.toUpperCase().trim();
-        const ubicacion = document.getElementById('almacen-ubicacion').value.toUpperCase().trim();
-        const cantidad = parseInt(document.getElementById('almacen-cantidad').value);
-
-        if (locationRequirementDisabled && !ubicacion) {
-            const ok = await showDialog('La ubicación no se ha ingresado. ¿Continuar?', [{ label: 'No', value: false }, { label: 'Si', value: true }]);
-            if (!ok) return;
-        }
-
-        const newEntry = {
-            sku,
-            ubicacion,
-            cantidad,
-            fecha: new Date().toLocaleString()
-        };
-
-        if (firebaseEnabled) {
-            almacenRef.push(newEntry).catch(console.error);
-        } else {
-            almacenData.push({ ...newEntry, _key: `local-${Date.now()}` });
-            saveToLocalStorage('almacenData', almacenData);
-            renderData();
-        }
-        almacenForm.reset();
-    });
-
-    movimientosForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const origen = origenSelect.value;
-        const destino = destinoSelect.value;
-        const sku = movimientoSKU.value.toUpperCase().trim();
-        const cantidad = parseInt(movimientoCantidad.value);
-
-        if (!origen || !destino || !sku || !cantidad) {
-            alert('Por favor, complete todos los campos.');
-            return;
-        }
-
-        const newEntry = {
-            sku,
-            origen,
-            destino,
-            cantidad,
-            fecha: new Date().toLocaleString()
-        };
-
-        if (firebaseEnabled) {
-            movimientosRef.push(newEntry).catch(console.error);
-        } else {
-            movimientosData.push({ ...newEntry, _key: `local-${Date.now()}` });
-            saveToLocalStorage('movimientosData', movimientosData);
-            renderData();
-        }
-        movimientosForm.reset();
-    });
-
-    // Lógica para la nueva pestaña "Por Contar"
-    async function loadCountListFromFile(file) {
-        if (!file) return;
-        const statusEl = document.getElementById('file-status');
-        statusEl.textContent = 'Cargando archivo...';
-        try {
-            const data = await file.arrayBuffer();
-            const wb = XLSX.read(data, { type: 'array' });
-            const firstSheet = wb.SheetNames[0];
-            const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet]);
-
-            if (!jsonData.length) {
-                statusEl.textContent = 'El archivo está vacío.';
-                return;
-            }
-
-            const skuKey = Object.keys(jsonData[0]).find(k => k.toLowerCase().includes('sku'));
-            if (!skuKey) {
-                statusEl.textContent = 'El archivo no contiene una columna "SKU".';
-                return;
-            }
-
-            const newList = jsonData.map((row, index) => ({
-                sku: row[skuKey] || '',
-                ubicacion: '',
-                cantidad: 0,
-                contado: false,
-                _key: firebaseEnabled ? null : `local-${Date.now()}-${index}`
-            })).filter(item => item.sku);
-
-            if (firebaseEnabled) {
-                await contarRef.remove();
-                const updates = {};
-                newList.forEach(item => {
-                    const newKey = contarRef.push().key;
-                    updates[newKey] = {
-                        sku: item.sku,
-                        ubicacion: '',
-                        cantidad: 0,
-                        contado: false
-                    };
-                });
-                await contarRef.update(updates);
-            } else {
-                contarData = newList;
-                saveToLocalStorage('contarData', contarData);
-            }
-
-            statusEl.textContent = `Lista de ${newList.length} SKUs cargada correctamente.`;
-            renderData();
-        } catch (err) {
-            console.error('Error al cargar la lista:', err);
-            statusEl.textContent = 'Error al procesar el archivo.';
-        }
-    }
-
-    document.getElementById('upload-count-list-btn').addEventListener('click', async () => {
-        const fileInput = document.getElementById('file-input');
-        if (fileInput.files.length > 0) {
-            await loadCountListFromFile(fileInput.files[0]);
-        } else {
-            document.getElementById('file-status').textContent = 'Selecciona un archivo primero.';
-        }
-    });
-
-    document.getElementById('clear-contar-btn').addEventListener('click', async () => {
-        const ok = await showDialog('¿Estás seguro de que quieres borrar la lista de conteo?', [{ label: 'No', value: false }, { label: 'Si', value: true }]);
-        if (ok) {
-            if (firebaseEnabled) {
-                await contarRef.remove();
-            } else {
-                contarData = [];
-                saveToLocalStorage('contarData', contarData);
-                renderData();
-            }
-        }
-    });
-
-
-    // Funciones de Renderizado
-    function renderTable(containerId, data, cols, dataKey) {
+    // Render tabla
+    function renderTable(containerId, data, columns, dataKey) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
         if (!data || data.length === 0) {
-            container.innerHTML = '<p>No hay datos para mostrar.</p>';
+            container.innerHTML = '<p>No hay datos registrados.</p>';
             return;
         }
-
         const table = document.createElement('table');
-        table.className = 'data-table';
-        const thead = table.createTHead();
-        const headerRow = thead.insertRow();
-        cols.forEach(col => {
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+
+        const headerRow = document.createElement('tr');
+        columns.forEach(col => {
             const th = document.createElement('th');
             th.textContent = col.title;
             headerRow.appendChild(th);
         });
+        const thActions = document.createElement('th');
+        thActions.textContent = "Acción";
+        headerRow.appendChild(thActions);
+        thead.appendChild(headerRow);
 
-        const tbody = table.createTBody();
         data.forEach(item => {
-            const row = tbody.insertRow();
-            cols.forEach(col => {
-                const cell = row.insertCell();
-                cell.textContent = item[col.key];
+            const row = document.createElement('tr');
+            columns.forEach(col => {
+                const td = document.createElement('td');
+                td.textContent = item[col.key] != null ? item[col.key] : '';
+                row.appendChild(td);
             });
+            const tdActions = document.createElement('td');
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '<span class="material-icons">delete_forever</span>';
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.onclick = () => deleteEntry(dataKey, item._key);
+            tdActions.appendChild(deleteBtn);
+            row.appendChild(tdActions);
+            tbody.appendChild(row);
         });
 
+        table.appendChild(thead);
+        table.appendChild(tbody);
         container.appendChild(table);
     }
 
-    function renderContarList(containerId, data) {
-        const container = document.getElementById(containerId);
-        container.innerHTML = '';
-        if (!data || data.length === 0) {
-            container.innerHTML = '<p>No hay SKUs por contar. Carga una lista.</p>';
+    async function deleteEntry(dataKey, key) {
+        if (!confirm('¿Estás seguro de que querés eliminar este registro?')) return;
+        if (firebaseEnabled) {
+            if (dataKey === 'pickingData') await picksRef.child(key).remove();
+            else if (dataKey === 'almacenData') await almacenRef.child(key).remove();
+            else if (dataKey === 'movimientosData') {
+                if (Array.isArray(key)) {
+                    await Promise.all(key.map(k => movimientosRef.child(k).remove()));
+                } else {
+                    await movimientosRef.child(key).remove();
+                }
+            }
+        } else {
+            if (dataKey === 'pickingData') {
+                pickingData = pickingData.filter(it => it._key !== key);
+                saveToLocalStorage('pickingData', pickingData);
+            } else if (dataKey === 'almacenData') {
+                almacenData = almacenData.filter(it => it._key !== key);
+                saveToLocalStorage('almacenData', almacenData);
+            } else if (dataKey === 'movimientosData') {
+                if (Array.isArray(key)) {
+                    movimientosData = movimientosData.filter(it => !key.includes(it._key));
+                } else {
+                    movimientosData = movimientosData.filter(it => it._key !== key);
+                }
+                saveToLocalStorage('movimientosData', movimientosData);
+            }
+            renderData();
+        }
+    }
+
+    function updateDescription(skuInput, descriptionSpan) {
+        const sku = skuInput.value;
+        const description = productCatalog[sku] ? productCatalog[sku].descripcion : '';
+        descriptionSpan.textContent = description || 'Descripción no encontrada';
+    }
+
+    // Navegación
+    navButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            navButtons.forEach(b => b.classList.remove('active'));
+            button.classList.add('active');
+            tabContents.forEach(c => c.classList.remove('active'));
+            const target = document.getElementById(button.dataset.tab);
+            if (target) target.classList.add('active');
+            renderData();
+        });
+    });
+
+    // Menu lateral
+    menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
+    closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
+
+    // Escáner (BarcodeDetector o ZXing)
+    let videoStream = null;
+    let videoElem = null;
+    let barcodeDetector = null;
+    let useBarcodeDetector = false;
+    let zxingCodeReader = null;
+    const desiredFormats = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'code_93'];
+
+    function ensureVideoElement() {
+        if (!videoElem) {
+            videoElem = document.createElement('video');
+            videoElem.setAttribute('autoplay', true);
+            videoElem.setAttribute('playsinline', true);
+            videoElem.style.width = '100%';
+            videoElem.style.maxHeight = '320px';
+            videoElem.style.objectFit = 'cover';
+            scannerContainer.innerHTML = '';
+            scannerContainer.appendChild(videoElem);
+        }
+    }
+
+    function stopScanner() {
+        if (videoElem && !videoElem.paused) try {
+            videoElem.pause();
+        } catch (e) {}
+        if (zxingCodeReader && zxingCodeReader.reset) try {
+            zxingCodeReader.reset();
+        } catch (e) {}
+        if (videoStream) {
+            videoStream.getTracks().forEach(t => t.stop());
+            videoStream = null;
+        }
+        scannerModal.classList.remove('open');
+        scannerContainer.innerHTML = '';
+        videoElem = null;
+        barcodeDetector = null;
+        useBarcodeDetector = false;
+    }
+
+    async function startScanner() {
+        ensureVideoElement();
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: {
+                        ideal: 'environment'
+                    }
+                },
+                audio: false
+            });
+            videoElem.srcObject = videoStream;
+            await videoElem.play();
+        } catch (err) {
+            alert('No se pudo acceder a la cámara: ' + (err.message || err));
+            stopScanner();
             return;
         }
 
-        data.forEach(item => {
-            const entryDiv = document.createElement('div');
-            entryDiv.className = 'contar-entry';
-            if (item.contado) entryDiv.classList.add('contado');
+        if ('BarcodeDetector' in window) {
+            try {
+                const supported = await BarcodeDetector.getSupportedFormats();
+                useBarcodeDetector = desiredFormats.some(f => supported.includes(f));
+                if (useBarcodeDetector) barcodeDetector = new BarcodeDetector({
+                    formats: supported.filter(f => desiredFormats.includes(f))
+                });
+            } catch (e) {
+                useBarcodeDetector = false;
+                barcodeDetector = null;
+            }
+        }
 
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'contar-header';
-            headerDiv.innerHTML = `
-                <span>${item.sku}</span>
-                ${item.contado ? '<span class="material-icons check-icon">check_circle</span>' : ''}
-            `;
-            headerDiv.onclick = () => {
-                entryDiv.classList.toggle('expanded');
-            };
+        if (useBarcodeDetector && barcodeDetector) {
+            let scanning = true;
+            async function loop() {
+                if (!scanning) return;
+                try {
+                    const codes = await barcodeDetector.detect(videoElem);
+                    if (codes && codes.length) {
+                        const code = codes[0].rawValue || '';
+                        if (code && currentScanInput) {
+                            currentScanInput.value = code;
+                            currentScanInput.dispatchEvent(new Event('input'));
+                            scanning = false;
+                            stopScanner();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('BarcodeDetector error', e);
+                }
+                requestAnimationFrame(loop);
+            }
+            requestAnimationFrame(loop);
+        } else {
+            // ZXing fallback
+            if (window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader)) {
+                const Reader = window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader);
+                try {
+                    zxingCodeReader = new Reader();
+                    const deviceId = await pickBackCameraId();
+                    await zxingCodeReader.decodeFromVideoDevice(deviceId || null, videoElem, (result, err) => {
+                        if (result && result.text) {
+                            if (currentScanInput) {
+                                currentScanInput.value = result.text;
+                                currentScanInput.dispatchEvent(new Event('input'));
+                                try {
+                                    zxingCodeReader.reset();
+                                } catch (e) {}
+                                stopScanner();
+                            }
+                        }
+                        if (err) {
+                            // ignorable errors while scanning
+                        }
+                    });
+                } catch (e) {
+                    console.warn('ZXing fallback error', e);
+                }
+            } else {
+                alert('No hay método de escaneo disponible en este navegador.');
+                stopScanner();
+            }
+        }
+    }
 
-            const formContainer = document.createElement('div');
-            formContainer.className = 'contar-form-container';
-            const form = createContarForm(item);
-            formContainer.appendChild(form);
+    async function pickBackCameraId() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputs = devices.filter(d => d.kind === 'videoinput');
+            for (const v of videoInputs) {
+                const lbl = (v.label || '').toLowerCase();
+                if (lbl.includes('back') || lbl.includes('rear') || lbl.includes('environment')) return v.deviceId;
+            }
+            return videoInputs.length ? videoInputs[0].deviceId : null;
+        } catch (e) {
+            return null;
+        }
+    }
 
-            entryDiv.appendChild(headerDiv);
-            entryDiv.appendChild(formContainer);
-            container.appendChild(entryDiv);
+    document.querySelectorAll('.scan-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentScanInput = document.getElementById(btn.dataset.input);
+            scannerModal.classList.add('open');
+            startScanner();
+        });
+    });
+
+    stopScannerBtn.addEventListener('click', () => stopScanner());
+
+    // Diálogo para notificaciones
+    function showDialog(message, buttons = [{
+        label: 'Aceptar',
+        value: true
+    }]) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'custom-dialog-overlay';
+            const box = document.createElement('div');
+            box.className = 'custom-dialog-box';
+            const msg = document.createElement('p');
+            msg.textContent = message;
+            msg.className = 'custom-dialog-message';
+            const buttonsDiv = document.createElement('div');
+            buttonsDiv.className = 'custom-dialog-buttons';
+            buttons.forEach(b => {
+                const btn = document.createElement('button');
+                btn.textContent = b.label;
+                btn.className = `custom-dialog-button ${b.value ? 'primary' : 'secondary'}`;
+                btn.addEventListener('click', () => {
+                    document.body.removeChild(overlay);
+                    resolve(b.value);
+                });
+                buttonsDiv.appendChild(btn);
+            });
+            box.appendChild(msg);
+            if (buttons.length > 0) {
+                box.appendChild(buttonsDiv);
+            }
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+
+            if (buttons.length === 0) {
+                resolve({
+                    overlay: overlay,
+                    box: box
+                });
+            }
         });
     }
 
-    function createContarForm(item) {
-        const form = document.createElement('form');
-        form.innerHTML = `
-            <div class="input-group">
-                <label for="contar-location-${item._key}">Ubicación</label>
-                <div class="input-with-scan">
-                    <input type="text" id="contar-location-${item._key}" placeholder="Ej: 1-20-3-4" value="${item.ubicacion || ''}">
-                    <button type="button" class="scan-btn" data-input="contar-location-${item._key}"><span class="material-icons">qr_code_scanner</span></button>
-                </div>
-            </div>
-            <div class="input-group">
-                <label>Cantidad por Cajas</label>
-                <div class="quantity-inputs">
-                    <span class="material-icons">inventory_2</span>
-                    <input type="number" id="contar-boxes-${item._key}" placeholder="Cajas">
-                    <span>x</span>
-                    <input type="number" id="contar-per-box-${item._key}" placeholder="Unidades/caja">
-                </div>
-            </div>
-            <div class="input-group">
-                <label>Unidades Sueltas</label>
-                <div class="quantity-inputs">
-                    <span class="material-icons">add_box</span>
-                    <input type="number" id="contar-loose-${item._key}" placeholder="Sueltas">
-                </div>
-            </div>
-            <div class="input-group">
-                <p>Total: <strong id="contar-total-${item._key}">0</strong></p>
-            </div>
-            <button type="submit" class="btn btn-primary">Guardar Conteo</button>
-        `;
-
-        const boxesInput = form.querySelector(`#contar-boxes-${item._key}`);
-        const perBoxInput = form.querySelector(`#contar-per-box-${item._key}`);
-        const looseInput = form.querySelector(`#contar-loose-${item._key}`);
-        const totalDisplay = form.querySelector(`#contar-total-${item._key}`);
+    // setup forms
+    function setupForm(form, dataKeyName) {
+        const skuInput = form.querySelector('input[id$="-sku"]');
+        const locationInput = form.querySelector('input[id$="-location"]');
+        const boxesInput = form.querySelector('input[id$="-boxes"]');
+        const perBoxInput = form.querySelector('input[id$="-per-box"]');
+        const looseInput = form.querySelector('input[id$="-loose"]');
+        const totalDisplay = form.querySelector('strong[id$="-total"]');
+        const descriptionSpan = form.querySelector('.product-description');
 
         function updateTotal() {
             const boxes = parseInt(boxesInput.value) || 0;
@@ -444,43 +481,367 @@ document.addEventListener('DOMContentLoaded', () => {
             const loose = parseInt(looseInput.value) || 0;
             totalDisplay.textContent = (boxes * perBox) + loose;
         }
-        boxesInput.addEventListener('input', updateTotal);
-        perBoxInput.addEventListener('input', updateTotal);
-        looseInput.addEventListener('input', updateTotal);
+        if (boxesInput) boxesInput.addEventListener('input', updateTotal);
+        if (perBoxInput) perBoxInput.addEventListener('input', updateTotal);
+        if (looseInput) looseInput.addEventListener('input', updateTotal);
+
+        skuInput.addEventListener('input', () => updateDescription(skuInput, descriptionSpan));
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            const sku = skuInput.value.trim();
+            const location = locationInput ? locationInput.value.trim() : '';
             const cantidad = parseInt(totalDisplay.textContent) || 0;
-            const ubicacion = form.querySelector(`#contar-location-${item._key}`).value.trim();
+            const fecha = new Date().toLocaleString();
 
-            if (cantidad === 0) {
-                const ok = await showDialog('La cantidad es 0. ¿Continuar?', [{ label: 'No', value: false }, { label: 'Si', value: true }]);
+            if (!sku) {
+                await showDialog('Debe ingresar un SKU');
+                return;
+            }
+
+            if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
+                const ok = await showDialog('ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?', [{
+                    label: 'No',
+                    value: false
+                }, {
+                    label: 'Si',
+                    value: true
+                }]);
                 if (!ok) return;
             }
 
+            if (cantidad === 0) {
+                const ok2 = await showDialog('La cantidad ingresada es 0 ¿Continuar?', [{
+                    label: 'No',
+                    value: false
+                }, {
+                    label: 'Si',
+                    value: true
+                }]);
+                if (!ok2) return;
+            }
+
+            // buscar duplicado por sku+ubicacion
+            const dataArray = (dataKeyName === 'pickingData') ? pickingData : (dataKeyName === 'almacenData') ? almacenData : movimientosData;
+            let itemToUpdate = null;
+            if (dataKeyName !== 'movimientosData') itemToUpdate = dataArray.find(it => it.sku === sku && it.ubicacion === location);
+
             if (firebaseEnabled) {
-                await contarRef.child(item._key).update({
-                    ubicacion: ubicacion,
-                    cantidad: cantidad,
-                    contado: true,
-                    fecha: new Date().toLocaleString()
-                });
+                if (dataKeyName === 'pickingData') {
+                    if (itemToUpdate) {
+                        const key = itemToUpdate._key;
+                        const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
+                        await picksRef.child(key).update({
+                            cantidad: newCantidad,
+                            fecha
+                        });
+                    } else {
+                        await picksRef.push({
+                            fecha,
+                            sku,
+                            ubicacion: location,
+                            cantidad
+                        });
+                    }
+                } else if (dataKeyName === 'almacenData') {
+                    if (itemToUpdate) {
+                        const key = itemToUpdate._key;
+                        const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
+                        await almacenRef.child(key).update({
+                            cantidad: newCantidad,
+                            fecha
+                        });
+                    } else {
+                        await almacenRef.push({
+                            fecha,
+                            sku,
+                            ubicacion: location,
+                            cantidad
+                        });
+                    }
+                } else {
+                    let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
+
+                    if (movimientoToUpdate) {
+                        const key = movimientoToUpdate._key;
+                        const newCantidad = (parseInt(movimientoToUpdate.cantidad) || 0) + cantidad;
+                        await movimientosRef.child(key).update({
+                            cantidad: newCantidad,
+                            fecha
+                        });
+                    } else {
+                        await movimientosRef.push({
+                            fecha,
+                            origen: origenSelect.value,
+                            destino: destinoSelect.value,
+                            sku,
+                            cantidad
+                        });
+                    }
+                }
             } else {
-                const localItem = contarData.find(it => it._key === item._key);
-                if (localItem) {
-                    localItem.ubicacion = ubicacion;
-                    localItem.cantidad = cantidad;
-                    localItem.contado = true;
-                    localItem.fecha = new Date().toLocaleString();
-                    saveToLocalStorage('contarData', contarData);
+                // modo local
+                if (dataKeyName === 'pickingData') {
+                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
+                    else pickingData.push({
+                        fecha,
+                        sku,
+                        ubicacion: location,
+                        cantidad,
+                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    });
+                    saveToLocalStorage('pickingData', pickingData);
+                } else if (dataKeyName === 'almacenData') {
+                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
+                    else almacenData.push({
+                        fecha,
+                        sku,
+                        ubicacion: location,
+                        cantidad,
+                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    });
+                    saveToLocalStorage('almacenData', almacenData);
+                } else {
+                    let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
+                    if(movimientoToUpdate) movimientoToUpdate.cantidad += cantidad;
+                    else movimientosData.push({
+                        fecha,
+                        origen: origenSelect.value,
+                        destino: destinoSelect.value,
+                        sku,
+                        cantidad,
+                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    });
+                    saveToLocalStorage('movimientosData', movimientosData);
+                }
+                renderData();
+            }
+
+            form.reset();
+            updateTotal();
+            if (descriptionSpan) descriptionSpan.textContent = '';
+        });
+    }
+
+    setupForm(pickingForm, 'pickingData');
+    setupForm(almacenForm, 'almacenData');
+
+    origenSelect.addEventListener('change', (e) => {
+        destinoSelect.value = e.target.value === 'Picking' ? 'Almacén' : 'Picking';
+    });
+
+    const movBoxesInput = document.getElementById('movimientos-boxes');
+    const movPerBoxInput = document.getElementById('movimientos-per-box');
+    const movLooseInput = document.getElementById('movimientos-loose');
+    const movTotalDisplay = document.getElementById('movimientos-total');
+    function updateMovTotal() {
+        const boxes = parseInt(movBoxesInput.value) || 0;
+        const perBox = parseInt(movPerBoxInput.value) || 0;
+        const loose = parseInt(movLooseInput.value) || 0;
+        movimientoCantidad.value = (boxes * perBox) + loose;
+        movTotalDisplay.textContent = movimientoCantidad.value;
+    }
+    movBoxesInput.addEventListener('input', updateMovTotal);
+    movPerBoxInput.addEventListener('input', updateMovTotal);
+    movLooseInput.addEventListener('input', updateMovTotal);
+    
+    movimientosForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const sku = movimientoSKU.value.trim();
+        const cantidad = parseInt(movimientoCantidad.value) || 0;
+        const fecha = new Date().toLocaleString();
+        if (!sku || cantidad <= 0) {
+            alert('Por favor completa correctamente');
+            return;
+        }
+
+        if (firebaseEnabled) {
+            let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
+            if (movimientoToUpdate) {
+                const key = movimientoToUpdate._key;
+                const newCantidad = (parseInt(movimientoToUpdate.cantidad) || 0) + cantidad;
+                movimientosRef.child(key).update({ cantidad: newCantidad, fecha });
+            } else {
+                movimientosRef.push({ fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad });
+            }
+        } else {
+            let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
+            if(movimientoToUpdate) movimientoToUpdate.cantidad += cantidad;
+            else {
+                movimientosData.push({
+                    fecha,
+                    origen: origenSelect.value,
+                    destino: destinoSelect.value,
+                    sku,
+                    cantidad,
+                    _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                });
+            }
+            saveToLocalStorage('movimientosData', movimientosData);
+            renderData();
+        }
+        movimientosForm.reset();
+    });
+
+    // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
+    document.getElementById('load-file-btn').addEventListener('click', async () => {
+        await loadCatalogFromGitHub();
+    });
+
+    function updateDatalist() {
+        skuSuggestions.innerHTML = '';
+        Object.keys(productCatalog || {}).forEach(sku => {
+            const opt = document.createElement('option');
+            opt.value = sku;
+            skuSuggestions.appendChild(opt);
+        });
+    }
+
+    // Clear data
+    async function clearData(dataKey, msg) {
+        if (!confirm(msg)) return;
+        if (firebaseEnabled) {
+            if (dataKey === 'pickingData') await picksRef.remove();
+            else if (dataKey === 'almacenData') await almacenRef.remove();
+            else if (dataKey === 'movimientosData') await movimientosRef.remove();
+        } else {
+            if (dataKey === 'pickingData') {
+                pickingData = [];
+                localStorage.removeItem('pickingData');
+            } else if (dataKey === 'almacenData') {
+                almacenData = [];
+                localStorage.removeItem('almacenData');
+            } else if (dataKey === 'movimientosData') {
+                movimientosData = [];
+                localStorage.removeItem('movimientosData');
+            }
+            renderData();
+        }
+    }
+    document.getElementById('clear-picking-btn').addEventListener('click', () => clearData('pickingData', 'Borrar Picking?'));
+    document.getElementById('clear-almacen-btn').addEventListener('click', () => clearData('almacenData', 'Borrar Almacén?'));
+    document.getElementById('clear-movimientos-btn').addEventListener('click', () => clearData('movimientosData', 'Borrar Movimientos?'));
+
+    // Export helpers
+    function exportToCsv(filename, data, columns) {
+        const csvRows = [];
+        const bom = '\uFEFF';
+        csvRows.push(columns.map(c => `"${c.title}"`).join(';'));
+        data.forEach(item => {
+            csvRows.push(columns.map(col => `"${(item[col.key] != null ? String(item[col.key]) : '').replace(/"/g,'""')}"`).join(';'));
+        });
+        const blob = new Blob([bom + csvRows.join('\n')], {
+            type: 'text/csv;charset=utf-8;'
+        });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function aggregateAndExport(dataArray, filenamePrefix) {
+        const today = new Date().toISOString().slice(0, 10);
+        const agg = {};
+        dataArray.forEach(item => {
+            if (!agg[item.sku]) agg[item.sku] = {
+                SKU: item.sku,
+                CANTIDAD: 0,
+                FECHA: item.fecha || '',
+                UBICACIONES: []
+            };
+            agg[item.sku].CANTIDAD += item.cantidad || 0;
+            if (item.ubicacion) {
+                if (!agg[item.sku].UBICACIONES.includes(item.ubicacion)) agg[item.sku].UBICACIONES.push(item.ubicacion);
+            }
+        });
+        const out = Object.values(agg).map(it => {
+            const hasMultipleLocations = it.UBICACIONES.length > 1;
+            return {
+                SKU: it.SKU,
+                CANTIDAD: it.CANTIDAD,
+                TXT: `${it.SKU},${it.CANTIDAD}`,
+                FECHA: it.FECHA,
+                UBICACIÓN: it.UBICACIONES.join(' ; '),
+                REVISAR: hasMultipleLocations ? 'SI' : 'NO'
+            };
+        });
+        const cols = [{
+            key: 'SKU',
+            title: 'SKU'
+        }, {
+            key: 'CANTIDAD',
+            title: 'CANTIDAD'
+        }, {
+            key: 'TXT',
+            title: 'TXT'
+        }, {
+            key: 'FECHA',
+            title: 'FECHA'
+        }, {
+            key: 'UBICACIÓN',
+            title: 'UBICACIÓN'
+        }, {
+            key: 'REVISAR',
+            title: 'REVISAR'
+        }];
+        exportToCsv(`${filenamePrefix}_${today}.csv`, out, cols);
+    }
+
+    function aggregateMovements(movData) {
+        const aggregated = {};
+        movData.forEach(item => {
+            const key = `${item.sku}-${item.origen}-${item.destino}`;
+            if (!aggregated[key]) {
+                aggregated[key] = {
+                    fecha: item.fecha,
+                    origen: item.origen,
+                    destino: item.destino,
+                    sku: item.sku,
+                    cantidad: item.cantidad,
+                    _key: [item._key] // Almacenar las claves originales en un array
+                };
+            } else {
+                aggregated[key].cantidad += item.cantidad;
+                if (!aggregated[key]._key.includes(item._key)) {
+                     aggregated[key]._key.push(item._key);
                 }
             }
-            form.parentElement.parentElement.classList.remove('expanded');
-            renderData();
         });
-
-        return form;
+        return Object.values(aggregated);
     }
+
+    document.getElementById('export-picking-btn').addEventListener('click', () => aggregateAndExport(pickingData, 'Picking'));
+    document.getElementById('export-almacen-btn').addEventListener('click', () => aggregateAndExport(almacenData, 'Almacén'));
+    document.getElementById('export-movimientos-btn').addEventListener('click', () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const aggregatedMovs = aggregateMovements(movimientosData);
+        const dataWithTxt = aggregatedMovs.map(item => ({
+            ...item,
+            TXT: `${item.sku},${item.cantidad}`
+        }));
+        const cols = [{
+            key: 'fecha',
+            title: 'FECHA'
+        }, {
+            key: 'origen',
+            title: 'ORIGEN'
+        }, {
+            key: 'destino',
+            title: 'DESTINO'
+        }, {
+            key: 'sku',
+            title: 'SKU'
+        }, {
+            key: 'cantidad',
+            title: 'CANTIDAD'
+        }, {
+            key: 'TXT',
+            title: 'TXT'
+        }];
+        exportToCsv(`Movimientos_${today}.csv`, dataWithTxt, cols);
+    });
 
     function renderData() {
         const pickingCols = [{
@@ -529,130 +890,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }];
         const aggregatedMovData = aggregateMovements(movimientosData);
         renderTable('movimientos-data', aggregatedMovData, movCols, 'movimientosData');
-        renderContarList('contar-list-container', contarData);
     }
 
-    // Exportación de datos
-    function downloadCSV(data, filename) {
-        const csv = Papa.unparse(data);
-        const blob = new Blob([csv], {
-            type: 'text/csv;charset=utf-8;'
-        });
-        const link = document.createElement('a');
-        if (link.download !== undefined) {
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', filename);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-    }
-
-    document.getElementById('export-picking-btn').addEventListener('click', () => downloadCSV(pickingData, 'picking-vaxel.csv'));
-    document.getElementById('export-almacen-btn').addEventListener('click', () => downloadCSV(almacenData, 'almacen-vaxel.csv'));
-    document.getElementById('export-movimientos-btn').addEventListener('click', () => downloadCSV(movimientosData, 'movimientos-vaxel.csv'));
-    document.getElementById('export-contar-btn').addEventListener('click', () => {
-        const countedItems = contarData.filter(item => item.contado).map(item => ({
-            SKU: item.sku,
-            Ubicacion: item.ubicacion,
-            Cantidad: item.cantidad,
-            Fecha: item.fecha
-        }));
-        if (countedItems.length > 0) {
-            downloadCSV(countedItems, 'conteo-vaxel.csv');
-        } else {
-            showDialog('No hay datos contados para exportar.', [{ label: 'OK', value: true }]);
-        }
-    });
-    
-    // Funcionalidades adicionales (Movimientos y Menú)
-    function aggregateMovements(data) {
-        const aggregated = {};
-        data.forEach(item => {
-            const key = `${item.sku}-${item.origen}-${item.destino}`;
-            if (!aggregated[key]) {
-                aggregated[key] = {
-                    ...item,
-                    cantidad: 0
-                };
-            }
-            aggregated[key].cantidad += item.cantidad;
-        });
-        return Object.values(aggregated);
-    }
-
-    function updateMovementLocations() {
-        const ubicaciones = [...new Set(almacenData.map(item => item.ubicacion).filter(loc => loc))].sort();
-        const optionsHTML = ubicaciones.map(loc => `<option value="${loc}">${loc}</option>`).join('');
-        origenSelect.innerHTML = `<option value="">Seleccione o escanee</option>${optionsHTML}`;
-        destinoSelect.innerHTML = `<option value="">Seleccione o escanee</option>${optionsHTML}`;
-    }
-
-    // Funcionalidad de Escáner
-    document.querySelectorAll('.scan-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            activeScannerInput = btn.dataset.input;
-            startScanner();
-        });
-    });
-
-    stopScannerBtn.addEventListener('click', stopScanner);
-
-    function startScanner() {
-        if (scanner) {
-            stopScanner();
-        }
-        scannerModal.style.display = 'block';
-        scanner = new ZXing.BrowserMultiFormatReader();
-        scanner.decodeFromVideoDevice(null, 'scanner-container', (result, err) => {
-            if (result) {
-                const inputElement = document.getElementById(activeScannerInput);
-                if (inputElement) {
-                    inputElement.value = result.text;
-                    stopScanner();
-                }
-            }
-            if (err && !(err instanceof ZXing.NotFoundException)) {
-                console.error(err);
-            }
-        });
-    }
-
-    function stopScanner() {
-        if (scanner) {
-            scanner.reset();
-        }
-        scannerModal.style.display = 'none';
-        activeScannerInput = null;
-    }
-
-    // Menú Lateral
-    menuBtn.addEventListener('click', () => {
-        sideMenu.classList.add('open');
-    });
-
-    closeMenuBtn.addEventListener('click', () => {
-        sideMenu.classList.remove('open');
-    });
-
-    // Pestañas
-    navButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            navButtons.forEach(nav => nav.classList.remove('active'));
-            tabContents.forEach(tab => tab.classList.remove('active'));
-            btn.classList.add('active');
-            document.getElementById(btn.dataset.tab).classList.add('active');
-        });
-    });
-
-    // Inicialización
+    // Init
+    loadFromLocalStorageAll();
     initFirebase();
-    fetchCatalogo();
-    const cachedCatalogo = loadFromLocalStorage('catalogoSKU');
-    if (cachedCatalogo) {
-        catalogoSKU = cachedCatalogo;
-    }
-    renderData();
+    loadCatalogFromGitHub();
 });
