@@ -36,10 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let almacenData = [];
     let movimientosData = [];
     let productCatalog = {};
+    let locationsData = {}; // Nuevo: Datos de ubicaciones
 
     // URL del catálogo en GitHub
     // Esta es la URL corregida para el "raw content"
     const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
+    const githubLocationsUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Articulos - Ubicacion.xlsx'; // Nuevo: URL para el archivo de ubicaciones
 
     // Firebase refs
     let firebaseEnabled = false;
@@ -47,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let picksRef = null;
     let almacenRef = null;
     let movimientosRef = null;
+    let locationsRef = null; // Nuevo: Referencia para ubicaciones
 
     function isFirebaseAvailable() {
         return (typeof firebase !== 'undefined') && (firebase) && (firebase.database) && (typeof firebaseConfig !== 'undefined') && firebaseConfig;
@@ -67,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
             picksRef = dbRootRef.child('picking');
             almacenRef = dbRootRef.child('almacen');
             movimientosRef = dbRootRef.child('movimientos');
+            locationsRef = dbRootRef.child('ubicaciones'); // Nuevo: Inicializar la referencia
 
             firebaseEnabled = true;
             firebaseStatus.textContent = 'Conectado a Firebase (Realtime DB)';
@@ -84,6 +88,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const objToArray = (obj) => {
             if (!obj) return [];
             return Object.keys(obj).map(k => ({ ...obj[k], _key: k }));
+        };
+    
+        const objToMap = (obj) => {
+            if (!obj) return {};
+            return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, { ...value, _key: key }]));
         };
 
         picksRef.on('value', snapshot => {
@@ -105,6 +114,12 @@ document.addEventListener('DOMContentLoaded', () => {
             movimientosData = objToArray(val);
             saveToLocalStorage('movimientosData', movimientosData);
             renderData();
+        });
+        
+        locationsRef.on('value', snapshot => { // Nuevo: Listener para ubicaciones
+            const val = snapshot.val();
+            locationsData = objToMap(val);
+            saveToLocalStorage('locationsData', locationsData);
         });
     }
 
@@ -151,6 +166,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Nuevo: Función para cargar ubicaciones
+    async function loadLocationsFromGitHub() {
+        try {
+            showDialog('Cargando ubicaciones desde GitHub...');
+            const response = await fetch(githubLocationsUrl);
+            if (!response.ok) {
+                throw new Error('Error al obtener el archivo de ubicaciones de GitHub. Código de estado: ' + response.status);
+            }
+            const data = await response.arrayBuffer();
+            const wb = XLSX.read(data, {
+                type: 'array'
+            });
+            const firstSheet = wb.SheetNames[0];
+            const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet]);
+
+            const newLocations = {};
+            if (jsonData.length > 0) {
+                const keys = Object.keys(jsonData[0]);
+                const skuKey = keys.find(k => k.toLowerCase().includes('codigoarticulo'));
+                const locationKey = keys.find(k => k.toLowerCase().includes('ubicacion'));
+                if (!skuKey || !locationKey) {
+                    showDialog('Archivo de Excel de ubicaciones sin columnas "codigoarticulo" o "ubicacion".');
+                    return;
+                }
+                jsonData.forEach(row => {
+                    const sku = row[skuKey];
+                    const ubicacion = row[locationKey];
+                    if (sku) newLocations[sku] = ubicacion || '';
+                });
+            }
+
+            locationsData = newLocations;
+            if (firebaseEnabled) {
+                // Sincronizar con Firebase, sobrescribiendo
+                await locationsRef.set(locationsData);
+            }
+            saveToLocalStorage('locationsData', locationsData);
+            showDialog('Archivo de ubicaciones cargado correctamente.');
+        } catch (error) {
+            console.error('Error al cargar ubicaciones de GitHub:', error);
+            showDialog('Error al cargar ubicaciones de GitHub. ' + error.message);
+        }
+    }
+
     // localStorage helpers
     function saveToLocalStorage(key, data) {
         try {
@@ -174,6 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
         almacenData = loadFromLocalStorage('almacenData', []);
         movimientosData = loadFromLocalStorage('movimientosData', []);
         productCatalog = loadFromLocalStorage('productCatalog', {});
+        locationsData = loadFromLocalStorage('locationsData', {}); // Nuevo: Cargar ubicaciones
         updateDatalist();
     }
 
@@ -233,6 +293,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     await movimientosRef.child(key).remove();
                 }
+            } else if (dataKey === 'locationsData') { // Nuevo: Eliminar de ubicaciones
+                await locationsRef.child(key).remove();
             }
         } else {
             if (dataKey === 'pickingData') {
@@ -248,6 +310,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     movimientosData = movimientosData.filter(it => it._key !== key);
                 }
                 saveToLocalStorage('movimientosData', movimientosData);
+            } else if (dataKey === 'locationsData') { // Nuevo: Eliminar localmente
+                delete locationsData[key];
+                saveToLocalStorage('locationsData', locationsData);
             }
             renderData();
         }
@@ -499,7 +564,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
+            // Nuevo: Chequear si el SKU ya tiene una ubicación en el catálogo de ubicaciones
+            const hasLocationInCatalog = locationsData[sku] && locationsData[sku] !== '';
+            
+            if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location && !hasLocationInCatalog) {
                 const ok = await showDialog('ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?', [{
                     label: 'No',
                     value: false
@@ -519,6 +587,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     value: true
                 }]);
                 if (!ok2) return;
+            }
+            
+            // Nuevo: Guardar la ubicación si se ingresó y no existe en el catálogo
+            if (location && !hasLocationInCatalog) {
+                if (firebaseEnabled) {
+                    await locationsRef.child(sku).set(location);
+                } else {
+                    locationsData[sku] = location;
+                    saveToLocalStorage('locationsData', locationsData);
+                }
             }
 
             // buscar duplicado por sku+ubicacion
@@ -686,6 +764,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
     document.getElementById('load-file-btn').addEventListener('click', async () => {
         await loadCatalogFromGitHub();
+        await loadLocationsFromGitHub(); // Nuevo: Cargar ubicaciones también
     });
 
     function updateDatalist() {
@@ -749,21 +828,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 SKU: item.sku,
                 CANTIDAD: 0,
                 FECHA: item.fecha || '',
-                UBICACIONES: []
+                UBICACIONES: new Set() // Usar Set para evitar duplicados
             };
             agg[item.sku].CANTIDAD += item.cantidad || 0;
             if (item.ubicacion) {
-                if (!agg[item.sku].UBICACIONES.includes(item.ubicacion)) agg[item.sku].UBICACIONES.push(item.ubicacion);
+                agg[item.sku].UBICACIONES.add(item.ubicacion);
+            } else if (locationsData[item.sku]) { // Nuevo: Agregar ubicación del catálogo si existe
+                agg[item.sku].UBICACIONES.add(locationsData[item.sku]);
             }
         });
         const out = Object.values(agg).map(it => {
-            const hasMultipleLocations = it.UBICACIONES.length > 1;
+            const hasMultipleLocations = it.UBICACIONES.size > 1;
             return {
                 SKU: it.SKU,
                 CANTIDAD: it.CANTIDAD,
                 TXT: `${it.SKU},${it.CANTIDAD}`,
                 FECHA: it.FECHA,
-                UBICACIÓN: it.UBICACIONES.join(' ; '),
+                UBICACIÓN: Array.from(it.UBICACIONES).join(' ; '),
                 REVISAR: hasMultipleLocations ? 'SI' : 'NO'
             };
         });
@@ -896,4 +977,5 @@ document.addEventListener('DOMContentLoaded', () => {
     loadFromLocalStorageAll();
     initFirebase();
     loadCatalogFromGitHub();
+    loadLocationsFromGitHub(); // Nuevo: Cargar ubicaciones al inicio
 });
