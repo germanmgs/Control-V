@@ -38,10 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let productCatalog = {};
 
     // URL del catálogo en GitHub
-    // Esta es la URL "raw" original. Si da un error de "Failed to fetch",
-    // es probable que se deba a una política de CORS.
-    // Una solución alternativa es usar jsDelivr: 'https://cdn.jsdelivr.net/gh/germanmgs/Control-V@main/Articulos%20-%20Ubicaci%C3%B3n..xlsx'
-    const githubCatalogUrl = 'https://github.com/germanmgs/Control-V/raw/refs/heads/main/Articulos%20-%20Ubicaci%C3%B3n..xlsx';
+    // Esta es la URL corregida para el "raw content"
+    const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
 
     // Firebase refs
     let firebaseEnabled = false;
@@ -606,19 +604,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
                     if(movimientoToUpdate) movimientoToUpdate.cantidad += cantidad;
-                    else {
-                        movimientosData.push({
-                            fecha,
-                            origen: origenSelect.value,
-                            destino: destinoSelect.value,
-                            sku,
-                            cantidad,
-                            _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
-                        });
-                    }
+                    else movimientosData.push({
+                        fecha,
+                        origen: origenSelect.value,
+                        destino: destinoSelect.value,
+                        sku,
+                        cantidad,
+                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    });
                     saveToLocalStorage('movimientosData', movimientosData);
-                    renderData();
                 }
+                renderData();
             }
 
             form.reset();
