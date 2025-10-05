@@ -1,7 +1,4 @@
-/* app.js - Versión Definitiva con ESCÁNER ZXING (Corregida la Llamada al Botón de Escaneo) */
-
-// Agregamos la referencia global para ZXing
-let codeReader = null; 
+/* app.js - Versión Final */
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -41,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let productCatalog = {};
 
     // URL del catálogo en GitHub
+    // Esta es la URL corregida para el "raw content"
     const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
 
     // Firebase refs
@@ -277,101 +275,156 @@ document.addEventListener('DOMContentLoaded', () => {
     menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
     closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
 
-    // Escáner ZXING (El bueno)
+    // Escáner (BarcodeDetector o ZXing)
+    let videoStream = null;
+    let videoElem = null;
+    let barcodeDetector = null;
+    let useBarcodeDetector = false;
+    let zxingCodeReader = null;
+    const desiredFormats = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'code_93'];
 
-    /**
-     * Inicia el escáner de códigos de barras usando la librería ZXing.
-     * @param {HTMLElement} inputElement - El input donde se colocará el resultado.
-     */
-    async function startScanner(inputElement) { 
-        currentScanInput = inputElement; 
-        scannerModal.classList.add('open');
-        scannerContainer.innerHTML = "";
-        
-        // 1. Crear el objeto CodeReader
-        if (!codeReader) {
-            // Se le especifica que solo busque Code 128 (y otros tipos comunes)
-            codeReader = new ZXing.BrowserMultiFormatReader(
-                new Map([
-                    [ZXing.BarcodeFormat.CODE_128, {}],
-                    [ZXing.BarcodeFormat.CODE_39, {}],
-                    [ZXing.BarcodeFormat.EAN_13, {}],
-                    [ZXing.BarcodeFormat.QR_CODE, {}],
-                ])
-            );
+    function ensureVideoElement() {
+        if (!videoElem) {
+            videoElem = document.createElement('video');
+            videoElem.setAttribute('autoplay', true);
+            videoElem.setAttribute('playsinline', true);
+            videoElem.style.width = '100%';
+            videoElem.style.maxHeight = '320px';
+            videoElem.style.objectFit = 'cover';
+            scannerContainer.innerHTML = '';
+            scannerContainer.appendChild(videoElem);
         }
+    }
 
+    function stopScanner() {
+        if (videoElem && !videoElem.paused) try {
+            videoElem.pause();
+        } catch (e) {}
+        if (zxingCodeReader && zxingCodeReader.reset) try {
+            zxingCodeReader.reset();
+        } catch (e) {}
+        if (videoStream) {
+            videoStream.getTracks().forEach(t => t.stop());
+            videoStream = null;
+        }
+        scannerModal.classList.remove('open');
+        scannerContainer.innerHTML = '';
+        videoElem = null;
+        barcodeDetector = null;
+        useBarcodeDetector = false;
+    }
+
+    async function startScanner() {
+        ensureVideoElement();
         try {
-            // 2. Obtener lista de dispositivos (esto dispara la petición de permisos)
-            const videoInputDevices = await codeReader.listVideoInputDevices();
-
-            if (videoInputDevices.length === 0) {
-                throw new Error("ERR_NO_CAMERAS_DETECTED");
-            }
-            
-            // 3. Seleccionar la cámara trasera (si está disponible)
-            const rearCamera = videoInputDevices.find(device => 
-                device.label.toLowerCase().includes('back') || 
-                device.label.toLowerCase().includes('trasera') || 
-                device.label.toLowerCase().includes('environment')
-            );
-            
-            const deviceId = rearCamera ? rearCamera.deviceId : videoInputDevices[0].deviceId;
-            
-            // 4. Iniciar la decodificación
-            codeReader.decodeFromVideoDevice(
-                deviceId, 
-                'scanner-container', 
-                (result, err) => {
-                    if (result) {
-                        // ¡Escaneo exitoso!
-                        currentScanInput.value = result.text;
-                        currentScanInput.dispatchEvent(new Event("input"));
-                        stopScanner();
+            videoStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: {
+                        ideal: 'environment'
                     }
-                    // Si hay un error de decodificación (no es un error fatal de cámara)
-                    // if (err && !(err instanceof ZXing.NotFoundException)) {
-                    //     console.error("Error de decodificación:", err);
-                    // }
-                }
-            );
-            
-            console.log(`Scanner ZXing iniciado con éxito en el dispositivo: ${deviceId}`);
-
+                },
+                audio: false
+            });
+            videoElem.srcObject = videoStream;
+            await videoElem.play();
         } catch (err) {
-            console.error("Error FATAL iniciando escáner ZXing:", err);
-            
-            let errMsg = "No se pudo iniciar la cámara (ZXing).\n\n";
-            
-            if (err.message && (err.message.includes("NotAllowedError") || err.message.includes("Permission denied"))) {
-                errMsg += "1. ❌ PERMISO DENEGADO: Debes aceptar el uso de la cámara. Revisa si el permiso está bloqueado permanentemente.";
-            } else if (err.message && err.message.includes("ERR_NO_CAMERAS_DETECTED")) {
-                errMsg += "1. ❌ NO SE ENCONTRARON CÁMARAS: El dispositivo o navegador no detecta ningún dispositivo de cámara.";
-            } else {
-                errMsg += `1. ⚠️ ERROR TÉCNICO: ${err.message || String(err)}.`;
-            }
-            
-            errMsg += "\n\n2. 💡 SOLUCIÓN:\n";
-            errMsg += "Asegúrate de estar usando HTTPS y que los permisos de la cámara estén habilitados en la configuración de tu navegador para este sitio.";
-
-            showDialog("🚨 ¡FALLO CRÍTICO DEL ESCÁNER! 🚨\n\n" + errMsg);
+            alert('No se pudo acceder a la cámara: ' + (err.message || err));
             stopScanner();
+            return;
         }
-    }
 
-    async function stopScanner() {
-        if (codeReader) {
+        if ('BarcodeDetector' in window) {
             try {
-                codeReader.reset(); // Detiene el stream de video y limpia el canvas
+                const supported = await BarcodeDetector.getSupportedFormats();
+                useBarcodeDetector = desiredFormats.some(f => supported.includes(f));
+                if (useBarcodeDetector) barcodeDetector = new BarcodeDetector({
+                    formats: supported.filter(f => desiredFormats.includes(f))
+                });
             } catch (e) {
-                console.warn("Error deteniendo scanner (ZXing)", e);
+                useBarcodeDetector = false;
+                barcodeDetector = null;
             }
         }
-        scannerModal.classList.remove("open");
-        scannerContainer.innerHTML = "";
+
+        if (useBarcodeDetector && barcodeDetector) {
+            let scanning = true;
+            async function loop() {
+                if (!scanning) return;
+                try {
+                    const codes = await barcodeDetector.detect(videoElem);
+                    if (codes && codes.length) {
+                        const code = codes[0].rawValue || '';
+                        if (code && currentScanInput) {
+                            currentScanInput.value = code;
+                            currentScanInput.dispatchEvent(new Event('input'));
+                            scanning = false;
+                            stopScanner();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('BarcodeDetector error', e);
+                }
+                requestAnimationFrame(loop);
+            }
+            requestAnimationFrame(loop);
+        } else {
+            // ZXing fallback
+            if (window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader)) {
+                const Reader = window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader);
+                try {
+                    zxingCodeReader = new Reader();
+                    const deviceId = await pickBackCameraId();
+                    await zxingCodeReader.decodeFromVideoDevice(deviceId || null, videoElem, (result, err) => {
+                        if (result && result.text) {
+                            if (currentScanInput) {
+                                currentScanInput.value = result.text;
+                                currentScanInput.dispatchEvent(new Event('input'));
+                                try {
+                                    zxingCodeReader.reset();
+                                } catch (e) {}
+                                stopScanner();
+                            }
+                        }
+                        if (err) {
+                            // ignorable errors while scanning
+                        }
+                    });
+                } catch (e) {
+                    console.warn('ZXing fallback error', e);
+                }
+            } else {
+                alert('No hay método de escaneo disponible en este navegador.');
+                stopScanner();
+            }
+        }
     }
 
-    // Diálogo para notificaciones (Sin cambios)
+    async function pickBackCameraId() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputs = devices.filter(d => d.kind === 'videoinput');
+            for (const v of videoInputs) {
+                const lbl = (v.label || '').toLowerCase();
+                if (lbl.includes('back') || lbl.includes('rear') || lbl.includes('environment')) return v.deviceId;
+            }
+            return videoInputs.length ? videoInputs[0].deviceId : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    document.querySelectorAll('.scan-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentScanInput = document.getElementById(btn.dataset.input);
+            scannerModal.classList.add('open');
+            startScanner();
+        });
+    });
+
+    stopScannerBtn.addEventListener('click', () => stopScanner());
+
+    // Diálogo para notificaciones
     function showDialog(message, buttons = [{
         label: 'Aceptar',
         value: true
@@ -412,7 +465,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // setup forms (CORRECCIÓN DE LA LLAMADA AL INPUT)
+    // setup forms
     function setupForm(form, dataKeyName) {
         const skuInput = form.querySelector('input[id$="-sku"]');
         const locationInput = form.querySelector('input[id$="-location"]');
@@ -423,90 +476,83 @@ document.addEventListener('DOMContentLoaded', () => {
         const descriptionSpan = form.querySelector('.product-description');
 
         function updateTotal() {
-            const boxes = parseInt(boxesInput?.value) || 0; 
-            const perBox = parseInt(perBoxInput?.value) || 0;
-            const loose = parseInt(looseInput?.value) || 0;
-            if(totalDisplay) totalDisplay.textContent = (boxes * perBox) + loose;
+            const boxes = parseInt(boxesInput.value) || 0;
+            const perBox = parseInt(perBoxInput.value) || 0;
+            const loose = parseInt(looseInput.value) || 0;
+            totalDisplay.textContent = (boxes * perBox) + loose;
         }
         if (boxesInput) boxesInput.addEventListener('input', updateTotal);
         if (perBoxInput) perBoxInput.addEventListener('input', updateTotal);
         if (looseInput) looseInput.addEventListener('input', updateTotal);
 
-        if (skuInput && descriptionSpan) {
-            skuInput.addEventListener('input', () => updateDescription(skuInput, descriptionSpan));
-        }
-        
-        // Configuración de botones de escaneo
-        const scanBtns = form.querySelectorAll('.scan-btn');
-        scanBtns.forEach(scanBtn => {
-            scanBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                // <<<<<<<<<<<<<< CORRECCIÓN AQUÍ >>>>>>>>>>>>>>>>>>
-                // Usamos 'data-input-id' que era el atributo esperado en la versión anterior.
-                const inputId = e.currentTarget.getAttribute('data-input-id'); 
-                const inputElement = document.getElementById(inputId);
-                
-                if (inputElement) {
-                    startScanner(inputElement);
-                } else {
-                    const errorMessage = inputId === null 
-                        ? 'Error: El botón de escaneo no tiene el atributo "data-input-id" definido en el HTML.' 
-                        : `Elemento de entrada con ID ${inputId} no encontrado.`;
-                    showDialog(errorMessage);
-                }
-            });
-        });
+        skuInput.addEventListener('input', () => updateDescription(skuInput, descriptionSpan));
 
-        if (dataKeyName === 'pickingData' || dataKeyName === 'almacenData') {
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const sku = skuInput.value.trim();
-                const location = locationInput ? locationInput.value.trim() : '';
-                const cantidad = parseInt(totalDisplay.textContent) || 0;
-                const fecha = new Date().toLocaleString();
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const sku = skuInput.value.trim();
+            const location = locationInput ? locationInput.value.trim() : '';
+            const cantidad = parseInt(totalDisplay.textContent) || 0;
+            const fecha = new Date().toLocaleString();
 
-                if (!sku) {
-                    await showDialog('Debe ingresar un SKU');
-                    return;
-                }
+            if (!sku) {
+                await showDialog('Debe ingresar un SKU');
+                return;
+            }
 
-                if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
-                    const ok = await showDialog('ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?', [{
-                        label: 'No',
-                        value: false
-                    }, {
-                        label: 'Si',
-                        value: true
-                    }]);
-                    if (!ok) return;
-                }
+            if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
+                const ok = await showDialog('ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?', [{
+                    label: 'No',
+                    value: false
+                }, {
+                    label: 'Si',
+                    value: true
+                }]);
+                if (!ok) return;
+            }
 
-                if (cantidad === 0) {
-                    const ok2 = await showDialog('La cantidad ingresada es 0 ¿Continuar?', [{
-                        label: 'No',
-                        value: false
-                    }, {
-                        label: 'Si',
-                        value: true
-                    }]);
-                    if (!ok2) return;
-                }
+            if (cantidad === 0) {
+                const ok2 = await showDialog('La cantidad ingresada es 0 ¿Continuar?', [{
+                    label: 'No',
+                    value: false
+                }, {
+                    label: 'Si',
+                    value: true
+                }]);
+                if (!ok2) return;
+            }
 
-                // buscar duplicado por sku+ubicacion
-                const dataArray = (dataKeyName === 'pickingData') ? pickingData : almacenData;
-                let itemToUpdate = dataArray.find(it => it.sku === sku && it.ubicacion === location);
+            // buscar duplicado por sku+ubicacion
+            const dataArray = (dataKeyName === 'pickingData') ? pickingData : (dataKeyName === 'almacenData') ? almacenData : movimientosData;
+            let itemToUpdate = null;
+            if (dataKeyName !== 'movimientosData') itemToUpdate = dataArray.find(it => it.sku === sku && it.ubicacion === location);
 
-                if (firebaseEnabled) {
-                    const ref = dataKeyName === 'pickingData' ? picksRef : almacenRef;
+            if (firebaseEnabled) {
+                if (dataKeyName === 'pickingData') {
                     if (itemToUpdate) {
                         const key = itemToUpdate._key;
                         const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
-                        await ref.child(key).update({
+                        await picksRef.child(key).update({
                             cantidad: newCantidad,
                             fecha
                         });
                     } else {
-                        await ref.push({
+                        await picksRef.push({
+                            fecha,
+                            sku,
+                            ubicacion: location,
+                            cantidad
+                        });
+                    }
+                } else if (dataKeyName === 'almacenData') {
+                    if (itemToUpdate) {
+                        const key = itemToUpdate._key;
+                        const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
+                        await almacenRef.child(key).update({
+                            cantidad: newCantidad,
+                            fecha
+                        });
+                    } else {
+                        await almacenRef.push({
                             fecha,
                             sku,
                             ubicacion: location,
@@ -514,38 +560,71 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                     }
                 } else {
-                    // modo local
-                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
-                    else {
-                        const newData = {
-                            fecha,
-                            sku,
-                            ubicacion: location,
-                            cantidad,
-                            _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
-                        };
-                        if (dataKeyName === 'pickingData') pickingData.push(newData);
-                        else almacenData.push(newData);
-                    }
-                    saveToLocalStorage(dataKeyName, dataArray);
-                    renderData();
-                }
+                    let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
 
-                form.reset();
-                updateTotal();
-                if (descriptionSpan) descriptionSpan.textContent = '';
-            });
-        }
-        
+                    if (movimientoToUpdate) {
+                        const key = movimientoToUpdate._key;
+                        const newCantidad = (parseInt(movimientoToUpdate.cantidad) || 0) + cantidad;
+                        await movimientosRef.child(key).update({
+                            cantidad: newCantidad,
+                            fecha
+                        });
+                    } else {
+                        await movimientosRef.push({
+                            fecha,
+                            origen: origenSelect.value,
+                            destino: destinoSelect.value,
+                            sku,
+                            cantidad
+                        });
+                    }
+                }
+            } else {
+                // modo local
+                if (dataKeyName === 'pickingData') {
+                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
+                    else pickingData.push({
+                        fecha,
+                        sku,
+                        ubicacion: location,
+                        cantidad,
+                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    });
+                    saveToLocalStorage('pickingData', pickingData);
+                } else if (dataKeyName === 'almacenData') {
+                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
+                    else almacenData.push({
+                        fecha,
+                        sku,
+                        ubicacion: location,
+                        cantidad,
+                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    });
+                    saveToLocalStorage('almacenData', almacenData);
+                } else {
+                    let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
+                    if(movimientoToUpdate) movimientoToUpdate.cantidad += cantidad;
+                    else movimientosData.push({
+                        fecha,
+                        origen: origenSelect.value,
+                        destino: destinoSelect.value,
+                        sku,
+                        cantidad,
+                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                    });
+                    saveToLocalStorage('movimientosData', movimientosData);
+                }
+                renderData();
+            }
+
+            form.reset();
+            updateTotal();
+            if (descriptionSpan) descriptionSpan.textContent = '';
+        });
     }
 
-    // Inicializar Formularios
     setupForm(pickingForm, 'pickingData');
     setupForm(almacenForm, 'almacenData');
-    setupForm(movimientosForm, 'movimientosData');
-
-    // Listener para el botón de Detener Escáner
-    stopScannerBtn.addEventListener('click', stopScanner);
 
     origenSelect.addEventListener('change', (e) => {
         destinoSelect.value = e.target.value === 'Picking' ? 'Almacén' : 'Picking';
@@ -571,24 +650,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const sku = movimientoSKU.value.trim();
         const cantidad = parseInt(movimientoCantidad.value) || 0;
         const fecha = new Date().toLocaleString();
-        
         if (!sku || cantidad <= 0) {
-            showDialog('Por favor, ingresa un SKU y una cantidad mayor a 0 para el movimiento.');
+            alert('Por favor completa correctamente');
             return;
         }
-
-        if (origenSelect.value === destinoSelect.value) {
-            showDialog('El Origen y el Destino deben ser diferentes.');
-            return;
-        }
-
 
         if (firebaseEnabled) {
-            let movimientoToUpdate = movimientosData.find(it => 
-                it.sku === sku && 
-                it.origen === origenSelect.value && 
-                it.destino === destinoSelect.value
-            );
+            let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
             if (movimientoToUpdate) {
                 const key = movimientoToUpdate._key;
                 const newCantidad = (parseInt(movimientoToUpdate.cantidad) || 0) + cantidad;
@@ -597,11 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 movimientosRef.push({ fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad });
             }
         } else {
-            let movimientoToUpdate = movimientosData.find(it => 
-                it.sku === sku && 
-                it.origen === origenSelect.value && 
-                it.destino === destinoSelect.value
-            );
+            let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
             if(movimientoToUpdate) movimientoToUpdate.cantidad += cantidad;
             else {
                 movimientosData.push({
@@ -617,10 +681,9 @@ document.addEventListener('DOMContentLoaded', () => {
             renderData();
         }
         movimientosForm.reset();
-        updateMovTotal(); // Reiniciar el total
     });
-    
-    // Carga catálogo 
+
+    // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
     document.getElementById('load-file-btn').addEventListener('click', async () => {
         await loadCatalogFromGitHub();
     });
@@ -737,7 +800,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     destino: item.destino,
                     sku: item.sku,
                     cantidad: item.cantidad,
-                    _key: [item._key] 
+                    _key: [item._key] // Almacenar las claves originales en un array
                 };
             } else {
                 aggregated[key].cantidad += item.cantidad;
