@@ -109,7 +109,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Funciones de carga de catálogo
     async function loadCatalogFromGitHub() {
         try {
-            showDialog('Cargando catálogo desde GitHub...');
+            // Muestra el diálogo solo si no estamos cargando automáticamente desde local
+            if (Object.keys(productCatalog).length === 0) {
+                 showDialog('Cargando catálogo desde GitHub...');
+            } else {
+                 showDialog('Recargando catálogo desde GitHub...');
+            }
+            
             const response = await fetch(githubCatalogUrl);
             if (!response.ok) {
                 throw new Error('Error al obtener el catálogo de GitHub. Código de estado: ' + response.status);
@@ -126,22 +132,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 const keys = Object.keys(jsonData[0]);
                 const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
                 const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
-                // MODIFICACIÓN: Buscar clave de Ubicación
-                const locKey = keys.find(k => k.toLowerCase().includes('ubicacion') || k.toLowerCase().includes('ubicaciones') || k.toLowerCase().includes('loc'));
+                
+                // MODIFICACIÓN: Búsqueda de clave de Ubicación más robusta
+                const locKey = keys.find(k => k.toLowerCase().includes('ubicacion') || k.toLowerCase().includes('ubicaciones') || k.toLowerCase().includes('locacion') || k.toLowerCase().includes('loc'));
 
                 if (!skuKey || !descKey) {
                     showDialog('Archivo de Excel sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.');
                     return;
                 }
+
+                if (!locKey) {
+                     // ADVERTENCIA VISIBLE en consola si no se encuentra el encabezado de ubicación
+                     console.warn("ADVERTENCIA: No se encontró una columna con el encabezado 'Ubicación' o similar en el Excel. El autocompletado de ubicación no funcionará.");
+                }
+
                 jsonData.forEach(row => {
                     const sku = row[skuKey];
                     const descripcion = row[descKey];
-                    // MODIFICACIÓN: Leer y almacenar la ubicación
-                    const ubicacion = locKey ? row[locKey] : ''; 
+                    // Aseguramos que el valor se convierta a cadena y se limpie de espacios.
+                    const ubicacion = locKey ? String(row[locKey]).trim() : ''; 
                     
                     if (sku) newCatalog[sku] = {
                         descripcion: descripcion || '',
-                        ubicacion: ubicacion ? String(ubicacion).trim() : '' // Almacenar la ubicación
+                        ubicacion: ubicacion // Se guarda la ubicación
                     };
                 });
             }
@@ -522,6 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (productInfo && productInfo.ubicacion) {
                     // Autocompletar solo si el campo de ubicación está vacío
+                    // Se agrega trim() a la ubicación del input por si tiene espacios residuales
                     if (locationInput.value.trim() === '') {
                         locationInput.value = productInfo.ubicacion;
                     }
@@ -585,7 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         label: 'Si, continuar',
                         value: true
                     }]);
-                    if (!ok) return; // Detiene el envío del formulario si el usuario elige 'No'
+                    if (!ok) return; // Detiene el envío
                 }
             }
             // FIN MODIFICACIÓN
@@ -803,18 +817,14 @@ document.addEventListener('DOMContentLoaded', () => {
             type: 'text/csv;charset=utf-8;'
         });
         const link = document.createElement('a');
-// ... (resto del código de exportación)
-// ... (resto del código de exportación)
+
         link.href = URL.createObjectURL(blob);
         link.download = filename;
         link.click();
         URL.revokeObjectURL(link.href);
     }
     
-    // ... (otras funciones como aggregateMovements, renderData, etc. no mostradas aquí por brevedad, pero asumo que existen)
-
     function aggregateMovements(data) {
-        // [Función de agregación de movimientos...]
         const aggregated = {};
         data.forEach(item => {
             const key = `${item.sku}-${item.origen}-${item.destino}`;
@@ -893,5 +903,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Inicialización
+    // 1. Cargamos el catálogo automáticamente al inicio.
+    // 2. Luego inicializamos Firebase.
     loadCatalogFromGitHub().then(() => initFirebase());
 });
