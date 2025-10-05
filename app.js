@@ -1,4 +1,4 @@
-/* app.js - Versión Final y Corregida (Octubre 2025) */
+/* app.js - Versión Definitiva con Solución al Escáner en Negro (Octubre 2025) */
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -281,6 +281,11 @@ async function startScanner(inputElement) {
     currentScanInput = inputElement; 
     scannerModal.classList.add('open');
     scannerContainer.innerHTML = "";
+
+    // SOLUCIÓN AGRESIVA: Forzar dimensiones antes de iniciar el escáner
+    scannerContainer.style.width = '100%'; 
+    scannerContainer.style.maxWidth = '400px'; 
+    scannerContainer.style.height = '300px'; 
     
     // Configuración del escáner
     const config = {
@@ -296,28 +301,33 @@ async function startScanner(inputElement) {
             Html5QrcodeSupportedFormats.ITF,
             Html5QrcodeSupportedFormats.CODABAR
         ],
-        disableFlip: false
+        disableFlip: false,
+        // Configuración para usar la cámara trasera preferentemente
+        videoConstraints: {
+            facingMode: { ideal: "environment" }
+        }
     };
-
-    // CORRECCIÓN CLAVE: Eliminar las constraints de la cámara para que la librería
-    //                   seleccione automáticamente la mejor cámara disponible (generalmente la trasera).
-    //                   Esto resuelve el problema de la pantalla en negro por error de inicialización.
-    const cameraId = { facingMode: "environment" }; // Se usará para forzar la cámara trasera si es necesario
 
     html5QrCode = new Html5Qrcode("scanner-container");
 
     try {
-        const cameras = await Html5Qrcode.getCameras();
         let cameraToUse = null;
 
+        // 1. Intentar obtener el ID de la cámara trasera
+        const cameras = await Html5Qrcode.getCameras();
+
         if (cameras && cameras.length) {
-             // 1. Buscar la cámara trasera (environment)
-            const rearCamera = cameras.find(camera => camera.label.toLowerCase().includes('back') || camera.label.toLowerCase().includes('trasera') || camera.label.toLowerCase().includes('environment'));
+            // Buscar cámara trasera
+            const rearCamera = cameras.find(camera => 
+                camera.label.toLowerCase().includes('back') || 
+                camera.label.toLowerCase().includes('trasera') || 
+                camera.label.toLowerCase().includes('environment')
+            );
             
             if (rearCamera) {
                 cameraToUse = rearCamera.id;
             } else {
-                 // 2. Si no se encuentra, usar la primera cámara disponible
+                // Si no se encuentra, usar el ID de la primera cámara disponible
                 cameraToUse = cameras[0].id;
             }
         }
@@ -326,9 +336,9 @@ async function startScanner(inputElement) {
             throw new Error("No se encontraron cámaras disponibles en el dispositivo.");
         }
 
-
+        // 2. Iniciar con el ID de la cámara seleccionada
         await html5QrCode.start(
-            cameraToUse, // Pasar el ID de la cámara seleccionado
+            cameraToUse,
             config,
             (decodedText) => {
                 if (decodedText && currentScanInput) {
@@ -338,8 +348,7 @@ async function startScanner(inputElement) {
                 }
             },
             (errorMessage) => {
-                // Función para manejar errores de escaneo (no fallos de inicio)
-                // console.warn('Error de escaneo (típico cuando no encuentra código):', errorMessage);
+                // Errores de escaneo no fatales
             }
         );
         
@@ -350,6 +359,8 @@ async function startScanner(inputElement) {
             errMsg += "Permiso de cámara denegado. Asegúrate de permitir el acceso en la configuración del navegador.";
         } else if (err.message && err.message.includes("No suitable camera") || err.message.includes("No se encontraron cámaras")) {
             errMsg += "No se encontró una cámara compatible o disponible. Puede que la cámara ya esté en uso.";
+        } else if (err.message && err.message.includes("Invalid video constraints")) {
+             errMsg += "Error de configuración de la cámara. El dispositivo no soporta los modos solicitados.";
         } else {
             errMsg += (err.message || err);
         }
@@ -361,7 +372,6 @@ async function startScanner(inputElement) {
 async function stopScanner() {
     if (html5QrCode) {
         try {
-            // Se usa .stop() y no .clear() para asegurar que la cámara se libere en navegadores problemáticos.
             await html5QrCode.stop(); 
         } catch (e) {
             console.warn("Error deteniendo scanner", e);
@@ -370,6 +380,10 @@ async function stopScanner() {
         html5QrCode = null;
     }
     scannerModal.classList.remove("open");
+    // Limpiar estilos forzados
+    scannerContainer.style.width = ''; 
+    scannerContainer.style.maxWidth = '';
+    scannerContainer.style.height = ''; 
     scannerContainer.innerHTML = "";
 }
 
@@ -542,7 +556,7 @@ async function stopScanner() {
     // Inicializar Formularios
     setupForm(pickingForm, 'pickingData');
     setupForm(almacenForm, 'almacenData');
-    setupForm(movimientosForm, 'movimientosData'); // Ya no falla el botón de Movimientos
+    setupForm(movimientosForm, 'movimientosData');
 
     // Listener para el botón de Detener Escáner
     stopScannerBtn.addEventListener('click', stopScanner);
