@@ -410,7 +410,7 @@ async function stopScanner() {
         scanBtns.forEach(scanBtn => {
             scanBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                // OBTENER el atributo del botón, no del icono interno
+                // OBTENER el atributo del botón, que AHORA es 'data-input-id' en el HTML
                 const inputId = e.currentTarget.getAttribute('data-input-id'); 
                 const inputElement = document.getElementById(inputId);
                 
@@ -626,10 +626,6 @@ async function stopScanner() {
         movimientosForm.reset();
     });
     
-    // Esta sección ya no es necesaria si setupForm maneja los botones de movimiento, 
-    // pero la dejamos como fallback si el formulario de movimientos fuera atípico.
-    // Como setupForm ya fue llamado, re-adjuntar los listeners no es un problema.
-
     // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
     document.getElementById('load-file-btn').addEventListener('click', async () => {
         await loadCatalogFromGitHub();
