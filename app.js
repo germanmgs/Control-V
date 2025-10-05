@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pickingForm = document.getElementById('picking-form');
     const almacenForm = document.getElementById('almacen-form');
-    const movimientosForm = document.getElementById('movimientos-form'); // Importante!
+    const movimientosForm = document.getElementById('movimientos-form'); 
 
     const skuSuggestions = document.getElementById('sku-suggestions');
     const scannerModal = document.getElementById('scanner-modal');
@@ -299,18 +299,36 @@ async function startScanner(inputElement) {
         disableFlip: false
     };
 
-    // Restricciones de la cámara (prioriza la trasera)
-    const cameraConstraints = {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
-    };
+    // CORRECCIÓN CLAVE: Eliminar las constraints de la cámara para que la librería
+    //                   seleccione automáticamente la mejor cámara disponible (generalmente la trasera).
+    //                   Esto resuelve el problema de la pantalla en negro por error de inicialización.
+    const cameraId = { facingMode: "environment" }; // Se usará para forzar la cámara trasera si es necesario
 
     html5QrCode = new Html5Qrcode("scanner-container");
 
     try {
+        const cameras = await Html5Qrcode.getCameras();
+        let cameraToUse = null;
+
+        if (cameras && cameras.length) {
+             // 1. Buscar la cámara trasera (environment)
+            const rearCamera = cameras.find(camera => camera.label.toLowerCase().includes('back') || camera.label.toLowerCase().includes('trasera') || camera.label.toLowerCase().includes('environment'));
+            
+            if (rearCamera) {
+                cameraToUse = rearCamera.id;
+            } else {
+                 // 2. Si no se encuentra, usar la primera cámara disponible
+                cameraToUse = cameras[0].id;
+            }
+        }
+        
+        if (!cameraToUse) {
+            throw new Error("No se encontraron cámaras disponibles en el dispositivo.");
+        }
+
+
         await html5QrCode.start(
-            cameraConstraints, 
+            cameraToUse, // Pasar el ID de la cámara seleccionado
             config,
             (decodedText) => {
                 if (decodedText && currentScanInput) {
@@ -324,16 +342,14 @@ async function startScanner(inputElement) {
                 // console.warn('Error de escaneo (típico cuando no encuentra código):', errorMessage);
             }
         );
-        // Si el escáner se inicia, pero está en negro, es probable un problema de la cámara seleccionada.
-        // Forzamos el uso de la cámara "environment" (trasera) con los constraints.
+        
     } catch (err) {
         console.error("Error iniciando escáner:", err);
-        // Manejo de error de inicio más robusto (común por permisos o cámara en uso)
         let errMsg = "No se pudo iniciar la cámara: ";
         if (err.message && err.message.includes("Permission denied")) {
             errMsg += "Permiso de cámara denegado. Asegúrate de permitir el acceso en la configuración del navegador.";
-        } else if (err.message && err.message.includes("No suitable camera")) {
-            errMsg += "No se encontró una cámara compatible (o ya está en uso).";
+        } else if (err.message && err.message.includes("No suitable camera") || err.message.includes("No se encontraron cámaras")) {
+            errMsg += "No se encontró una cámara compatible o disponible. Puede que la cámara ya esté en uso.";
         } else {
             errMsg += (err.message || err);
         }
@@ -345,7 +361,8 @@ async function startScanner(inputElement) {
 async function stopScanner() {
     if (html5QrCode) {
         try {
-            await html5QrCode.stop();
+            // Se usa .stop() y no .clear() para asegurar que la cámara se libere en navegadores problemáticos.
+            await html5QrCode.stop(); 
         } catch (e) {
             console.warn("Error deteniendo scanner", e);
         }
@@ -408,7 +425,7 @@ async function stopScanner() {
         const descriptionSpan = form.querySelector('.product-description');
 
         function updateTotal() {
-            const boxes = parseInt(boxesInput?.value) || 0; // Uso de optional chaining para seguridad
+            const boxes = parseInt(boxesInput?.value) || 0; 
             const perBox = parseInt(perBoxInput?.value) || 0;
             const loose = parseInt(looseInput?.value) || 0;
             if(totalDisplay) totalDisplay.textContent = (boxes * perBox) + loose;
@@ -426,7 +443,6 @@ async function stopScanner() {
         scanBtns.forEach(scanBtn => {
             scanBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                // OBTENER el atributo 'data-input-id' (corregido en el HTML anterior)
                 const inputId = e.currentTarget.getAttribute('data-input-id'); 
                 const inputElement = document.getElementById(inputId);
                 
@@ -441,7 +457,6 @@ async function stopScanner() {
             });
         });
 
-        // La lógica de submit se maneja a continuación para los formularios que la requieran.
         if (dataKeyName === 'pickingData' || dataKeyName === 'almacenData') {
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -524,11 +539,10 @@ async function stopScanner() {
         
     }
 
-    // Inicializar Formularios (Esto también adjunta los listeners del escáner)
+    // Inicializar Formularios
     setupForm(pickingForm, 'pickingData');
     setupForm(almacenForm, 'almacenData');
-    // CORRECCIÓN CLAVE: Inicializar MovimientosForm para que adjunte el listener del escáner
-    setupForm(movimientosForm, 'movimientosData'); 
+    setupForm(movimientosForm, 'movimientosData'); // Ya no falla el botón de Movimientos
 
     // Listener para el botón de Detener Escáner
     stopScannerBtn.addEventListener('click', stopScanner);
@@ -723,7 +737,7 @@ async function stopScanner() {
                     destino: item.destino,
                     sku: item.sku,
                     cantidad: item.cantidad,
-                    _key: [item._key] // Almacenar las claves originales en un array
+                    _key: [item._key] 
                 };
             } else {
                 aggregated[key].cantidad += item.cantidad;
