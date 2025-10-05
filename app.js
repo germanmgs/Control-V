@@ -1,4 +1,4 @@
-/* app.js - Versión Final y Revisada */
+/* app.js - Versión Final y Corregida (Octubre 2025) */
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pickingForm = document.getElementById('picking-form');
     const almacenForm = document.getElementById('almacen-form');
-    const movimientosForm = document.getElementById('movimientos-form');
+    const movimientosForm = document.getElementById('movimientos-form'); // Importante!
 
     const skuSuggestions = document.getElementById('sku-suggestions');
     const scannerModal = document.getElementById('scanner-modal');
@@ -38,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let productCatalog = {};
 
     // URL del catálogo en GitHub
-    // Esta es la URL corregida para el "raw content"
     const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
 
     // Firebase refs
@@ -278,8 +277,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Escáner con html5-qrcode
 let html5QrCode = null;
 
-async function startScanner(inputElement) { // Modificación: Ahora acepta el elemento input
-    currentScanInput = inputElement; // Almacenar el elemento input
+async function startScanner(inputElement) { 
+    currentScanInput = inputElement; 
     scannerModal.classList.add('open');
     scannerContainer.innerHTML = "";
     
@@ -311,7 +310,7 @@ async function startScanner(inputElement) { // Modificación: Ahora acepta el el
 
     try {
         await html5QrCode.start(
-            cameraConstraints, // El primer argumento es el conjunto de constraints
+            cameraConstraints, 
             config,
             (decodedText) => {
                 if (decodedText && currentScanInput) {
@@ -319,11 +318,26 @@ async function startScanner(inputElement) { // Modificación: Ahora acepta el el
                     currentScanInput.dispatchEvent(new Event("input"));
                     stopScanner();
                 }
+            },
+            (errorMessage) => {
+                // Función para manejar errores de escaneo (no fallos de inicio)
+                // console.warn('Error de escaneo (típico cuando no encuentra código):', errorMessage);
             }
         );
+        // Si el escáner se inicia, pero está en negro, es probable un problema de la cámara seleccionada.
+        // Forzamos el uso de la cámara "environment" (trasera) con los constraints.
     } catch (err) {
         console.error("Error iniciando escáner:", err);
-        alert("No se pudo iniciar la cámara: " + (err.message || err));
+        // Manejo de error de inicio más robusto (común por permisos o cámara en uso)
+        let errMsg = "No se pudo iniciar la cámara: ";
+        if (err.message && err.message.includes("Permission denied")) {
+            errMsg += "Permiso de cámara denegado. Asegúrate de permitir el acceso en la configuración del navegador.";
+        } else if (err.message && err.message.includes("No suitable camera")) {
+            errMsg += "No se encontró una cámara compatible (o ya está en uso).";
+        } else {
+            errMsg += (err.message || err);
+        }
+        showDialog(errMsg);
         stopScanner();
     }
 }
@@ -394,23 +408,25 @@ async function stopScanner() {
         const descriptionSpan = form.querySelector('.product-description');
 
         function updateTotal() {
-            const boxes = parseInt(boxesInput.value) || 0;
-            const perBox = parseInt(perBoxInput.value) || 0;
-            const loose = parseInt(looseInput.value) || 0;
-            totalDisplay.textContent = (boxes * perBox) + loose;
+            const boxes = parseInt(boxesInput?.value) || 0; // Uso de optional chaining para seguridad
+            const perBox = parseInt(perBoxInput?.value) || 0;
+            const loose = parseInt(looseInput?.value) || 0;
+            if(totalDisplay) totalDisplay.textContent = (boxes * perBox) + loose;
         }
         if (boxesInput) boxesInput.addEventListener('input', updateTotal);
         if (perBoxInput) perBoxInput.addEventListener('input', updateTotal);
         if (looseInput) looseInput.addEventListener('input', updateTotal);
 
-        skuInput.addEventListener('input', () => updateDescription(skuInput, descriptionSpan));
+        if (skuInput && descriptionSpan) {
+            skuInput.addEventListener('input', () => updateDescription(skuInput, descriptionSpan));
+        }
         
-        // CORRECCIÓN FINAL: Usar querySelectorAll y e.currentTarget para manejar TODOS los botones de escaneo
+        // Configuración de botones de escaneo
         const scanBtns = form.querySelectorAll('.scan-btn');
         scanBtns.forEach(scanBtn => {
             scanBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                // OBTENER el atributo del botón, que AHORA es 'data-input-id' en el HTML
+                // OBTENER el atributo 'data-input-id' (corregido en el HTML anterior)
                 const inputId = e.currentTarget.getAttribute('data-input-id'); 
                 const inputElement = document.getElementById(inputId);
                 
@@ -425,73 +441,57 @@ async function stopScanner() {
             });
         });
 
+        // La lógica de submit se maneja a continuación para los formularios que la requieran.
+        if (dataKeyName === 'pickingData' || dataKeyName === 'almacenData') {
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const sku = skuInput.value.trim();
+                const location = locationInput ? locationInput.value.trim() : '';
+                const cantidad = parseInt(totalDisplay.textContent) || 0;
+                const fecha = new Date().toLocaleString();
 
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const sku = skuInput.value.trim();
-            const location = locationInput ? locationInput.value.trim() : '';
-            const cantidad = parseInt(totalDisplay.textContent) || 0;
-            const fecha = new Date().toLocaleString();
+                if (!sku) {
+                    await showDialog('Debe ingresar un SKU');
+                    return;
+                }
 
-            if (!sku) {
-                await showDialog('Debe ingresar un SKU');
-                return;
-            }
+                if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
+                    const ok = await showDialog('ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?', [{
+                        label: 'No',
+                        value: false
+                    }, {
+                        label: 'Si',
+                        value: true
+                    }]);
+                    if (!ok) return;
+                }
 
-            if (!locationRequirementDisabled && dataKeyName !== 'movimientosData' && !location) {
-                const ok = await showDialog('ADVERTENCIA: Se subirá el SKU sin ubicación. ¿Continuar?', [{
-                    label: 'No',
-                    value: false
-                }, {
-                    label: 'Si',
-                    value: true
-                }]);
-                if (!ok) return;
-            }
+                if (cantidad === 0) {
+                    const ok2 = await showDialog('La cantidad ingresada es 0 ¿Continuar?', [{
+                        label: 'No',
+                        value: false
+                    }, {
+                        label: 'Si',
+                        value: true
+                    }]);
+                    if (!ok2) return;
+                }
 
-            if (cantidad === 0) {
-                const ok2 = await showDialog('La cantidad ingresada es 0 ¿Continuar?', [{
-                    label: 'No',
-                    value: false
-                }, {
-                    label: 'Si',
-                    value: true
-                }]);
-                if (!ok2) return;
-            }
+                // buscar duplicado por sku+ubicacion
+                const dataArray = (dataKeyName === 'pickingData') ? pickingData : almacenData;
+                let itemToUpdate = dataArray.find(it => it.sku === sku && it.ubicacion === location);
 
-            // buscar duplicado por sku+ubicacion
-            const dataArray = (dataKeyName === 'pickingData') ? pickingData : (dataKeyName === 'almacenData') ? almacenData : movimientosData;
-            let itemToUpdate = null;
-            if (dataKeyName !== 'movimientosData') itemToUpdate = dataArray.find(it => it.sku === sku && it.ubicacion === location);
-
-            if (firebaseEnabled) {
-                if (dataKeyName === 'pickingData') {
+                if (firebaseEnabled) {
+                    const ref = dataKeyName === 'pickingData' ? picksRef : almacenRef;
                     if (itemToUpdate) {
                         const key = itemToUpdate._key;
                         const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
-                        await picksRef.child(key).update({
+                        await ref.child(key).update({
                             cantidad: newCantidad,
                             fecha
                         });
                     } else {
-                        await picksRef.push({
-                            fecha,
-                            sku,
-                            ubicacion: location,
-                            cantidad
-                        });
-                    }
-                } else if (dataKeyName === 'almacenData') {
-                    if (itemToUpdate) {
-                        const key = itemToUpdate._key;
-                        const newCantidad = (parseInt(itemToUpdate.cantidad) || 0) + cantidad;
-                        await almacenRef.child(key).update({
-                            cantidad: newCantidad,
-                            fecha
-                        });
-                    } else {
-                        await almacenRef.push({
+                        await ref.push({
                             fecha,
                             sku,
                             ubicacion: location,
@@ -499,72 +499,36 @@ async function stopScanner() {
                         });
                     }
                 } else {
-                    let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
-
-                    if (movimientoToUpdate) {
-                        const key = movimientoToUpdate._key;
-                        const newCantidad = (parseInt(movimientoToUpdate.cantidad) || 0) + cantidad;
-                        await movimientosRef.child(key).update({
-                            cantidad: newCantidad,
-                            fecha
-                        });
-                    } else {
-                        await movimientosRef.push({
+                    // modo local
+                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
+                    else {
+                        const newData = {
                             fecha,
-                            origen: origenSelect.value,
-                            destino: destinoSelect.value,
                             sku,
-                            cantidad
-                        });
+                            ubicacion: location,
+                            cantidad,
+                            _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
+                        };
+                        if (dataKeyName === 'pickingData') pickingData.push(newData);
+                        else almacenData.push(newData);
                     }
+                    saveToLocalStorage(dataKeyName, dataArray);
+                    renderData();
                 }
-            } else {
-                // modo local
-                if (dataKeyName === 'pickingData') {
-                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
-                    else pickingData.push({
-                        fecha,
-                        sku,
-                        ubicacion: location,
-                        cantidad,
-                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
-                    });
-                    saveToLocalStorage('pickingData', pickingData);
-                } else if (dataKeyName === 'almacenData') {
-                    if (itemToUpdate) itemToUpdate.cantidad += cantidad;
-                    else almacenData.push({
-                        fecha,
-                        sku,
-                        ubicacion: location,
-                        cantidad,
-                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
-                    });
-                    saveToLocalStorage('almacenData', almacenData);
-                } else {
-                    let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
-                    if(movimientoToUpdate) movimientoToUpdate.cantidad += cantidad;
-                    else movimientosData.push({
-                        fecha,
-                        origen: origenSelect.value,
-                        destino: destinoSelect.value,
-                        sku,
-                        cantidad,
-                        _key: 'local-' + Date.now() + Math.random().toString(36).slice(2, 8)
-                    });
-                    saveToLocalStorage('movimientosData', movimientosData);
-                }
-                renderData();
-            }
 
-            form.reset();
-            updateTotal();
-            if (descriptionSpan) descriptionSpan.textContent = '';
-        });
+                form.reset();
+                updateTotal();
+                if (descriptionSpan) descriptionSpan.textContent = '';
+            });
+        }
+        
     }
 
     // Inicializar Formularios (Esto también adjunta los listeners del escáner)
     setupForm(pickingForm, 'pickingData');
     setupForm(almacenForm, 'almacenData');
+    // CORRECCIÓN CLAVE: Inicializar MovimientosForm para que adjunte el listener del escáner
+    setupForm(movimientosForm, 'movimientosData'); 
 
     // Listener para el botón de Detener Escáner
     stopScannerBtn.addEventListener('click', stopScanner);
@@ -593,13 +557,24 @@ async function stopScanner() {
         const sku = movimientoSKU.value.trim();
         const cantidad = parseInt(movimientoCantidad.value) || 0;
         const fecha = new Date().toLocaleString();
+        
         if (!sku || cantidad <= 0) {
-            alert('Por favor completa correctamente');
+            showDialog('Por favor, ingresa un SKU y una cantidad mayor a 0 para el movimiento.');
             return;
         }
 
+        if (origenSelect.value === destinoSelect.value) {
+            showDialog('El Origen y el Destino deben ser diferentes.');
+            return;
+        }
+
+
         if (firebaseEnabled) {
-            let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
+            let movimientoToUpdate = movimientosData.find(it => 
+                it.sku === sku && 
+                it.origen === origenSelect.value && 
+                it.destino === destinoSelect.value
+            );
             if (movimientoToUpdate) {
                 const key = movimientoToUpdate._key;
                 const newCantidad = (parseInt(movimientoToUpdate.cantidad) || 0) + cantidad;
@@ -608,7 +583,11 @@ async function stopScanner() {
                 movimientosRef.push({ fecha, origen: origenSelect.value, destino: destinoSelect.value, sku, cantidad });
             }
         } else {
-            let movimientoToUpdate = movimientosData.find(it => it.sku === sku && it.origen === origenSelect.value && it.destino === destinoSelect.value);
+            let movimientoToUpdate = movimientosData.find(it => 
+                it.sku === sku && 
+                it.origen === origenSelect.value && 
+                it.destino === destinoSelect.value
+            );
             if(movimientoToUpdate) movimientoToUpdate.cantidad += cantidad;
             else {
                 movimientosData.push({
@@ -624,6 +603,7 @@ async function stopScanner() {
             renderData();
         }
         movimientosForm.reset();
+        updateMovTotal(); // Reiniciar el total
     });
     
     // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
