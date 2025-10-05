@@ -549,6 +549,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 const sku = skuInput.value.trim();
                 const productInfo = productCatalog[sku];
                 
+                // >>> INICIO DE LA CORRECCIÓN PARA FORZAR LA ACTUALIZACIÓN DE LA UBICACIÓN <<<
+                
+                // 1. Determina la nueva ubicación (o cadena vacía si no se encuentra SKU/ubicación)
+                const nuevaUbicacion = (productInfo && productInfo.ubicacion) ? productInfo.ubicacion : '';
+                
+                // 2. FUERZA la actualización del campo de Ubicación con el nuevo valor.
+                //    Esto asegura que la ubicación anterior sea reemplazada por la nueva (o se vacíe).
+                //    Se incluye la comprobación de desigualdad para evitar un 'update' innecesario y posible re-render.
+                if (locationInput.value.trim() !== nuevaUbicacion) {
+                    locationInput.value = nuevaUbicacion;
+                }
+                
+                // >>> FIN DE LA CORRECCIÓN <<<
+
+                /* CÓDIGO ANTERIOR CON EL PROBLEMA:
                 if (productInfo && productInfo.ubicacion) {
                     // Autocompletar solo si el campo de ubicación está vacío
                     // Se agrega trim() a la ubicación del input por si tiene espacios residuales
@@ -556,6 +571,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         locationInput.value = productInfo.ubicacion;
                     }
                 }
+                */
             }
         });
         // FIN MODIFICACIÓN
