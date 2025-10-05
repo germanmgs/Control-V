@@ -1,4 +1,4 @@
-/* app.js - Versión Final */
+/* app.js - Versión Final y Revisada */
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -283,7 +283,7 @@ async function startScanner(inputElement) { // Modificación: Ahora acepta el el
     scannerModal.classList.add('open');
     scannerContainer.innerHTML = "";
     
-    // FIX 1: Configuración del escáner (ahora sin las restricciones de video)
+    // Configuración del escáner
     const config = {
         fps: 10,
         qrbox: { width: 250, height: 120 },
@@ -300,7 +300,7 @@ async function startScanner(inputElement) { // Modificación: Ahora acepta el el
         disableFlip: false
     };
 
-    // FIX 2: Restricciones de la cámara (se pasan como primer argumento a .start())
+    // Restricciones de la cámara (prioriza la trasera)
     const cameraConstraints = {
         facingMode: { ideal: "environment" },
         width: { ideal: 1920 },
@@ -311,7 +311,7 @@ async function startScanner(inputElement) { // Modificación: Ahora acepta el el
 
     try {
         await html5QrCode.start(
-            cameraConstraints, // FIX 3: El primer argumento debe ser el conjunto de constraints
+            cameraConstraints, // El primer argumento es el conjunto de constraints
             config,
             (decodedText) => {
                 if (decodedText && currentScanInput) {
@@ -405,20 +405,25 @@ async function stopScanner() {
 
         skuInput.addEventListener('input', () => updateDescription(skuInput, descriptionSpan));
         
-        // Asignar el listener al botón de escanear dentro de este formulario
-        const scanBtn = form.querySelector('.scan-btn');
-        if (scanBtn) {
+        // CORRECCIÓN FINAL: Usar querySelectorAll y e.currentTarget para manejar TODOS los botones de escaneo
+        const scanBtns = form.querySelectorAll('.scan-btn');
+        scanBtns.forEach(scanBtn => {
             scanBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                const inputId = e.target.getAttribute('data-input-id');
+                // OBTENER el atributo del botón, no del icono interno
+                const inputId = e.currentTarget.getAttribute('data-input-id'); 
                 const inputElement = document.getElementById(inputId);
+                
                 if (inputElement) {
                     startScanner(inputElement);
                 } else {
-                    showDialog(`Elemento de entrada con ID ${inputId} no encontrado.`);
+                    const errorMessage = inputId === null 
+                        ? 'Error: El botón de escaneo no tiene el atributo "data-input-id" definido en el HTML.' 
+                        : `Elemento de entrada con ID ${inputId} no encontrado.`;
+                    showDialog(errorMessage);
                 }
             });
-        }
+        });
 
 
         form.addEventListener('submit', async (e) => {
@@ -557,10 +562,11 @@ async function stopScanner() {
         });
     }
 
+    // Inicializar Formularios (Esto también adjunta los listeners del escáner)
     setupForm(pickingForm, 'pickingData');
     setupForm(almacenForm, 'almacenData');
 
-    // FIX: Listener para el botón de Detener Escáner
+    // Listener para el botón de Detener Escáner
     stopScannerBtn.addEventListener('click', stopScanner);
 
     origenSelect.addEventListener('change', (e) => {
@@ -620,21 +626,9 @@ async function stopScanner() {
         movimientosForm.reset();
     });
     
-    // Asignar el listener al botón de escanear del formulario de movimientos
-    const movimientoScanBtn = movimientosForm.querySelector('.scan-btn');
-    if (movimientoScanBtn) {
-        movimientoScanBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const inputId = e.target.getAttribute('data-input-id');
-            const inputElement = document.getElementById(inputId);
-            if (inputElement) {
-                startScanner(inputElement);
-            } else {
-                showDialog(`Elemento de entrada con ID ${inputId} no encontrado.`);
-            }
-        });
-    }
-
+    // Esta sección ya no es necesaria si setupForm maneja los botones de movimiento, 
+    // pero la dejamos como fallback si el formulario de movimientos fuera atípico.
+    // Como setupForm ya fue llamado, re-adjuntar los listeners no es un problema.
 
     // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
     document.getElementById('load-file-btn').addEventListener('click', async () => {
