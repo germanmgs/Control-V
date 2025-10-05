@@ -1,4 +1,4 @@
-/* app.js - Versión Definitiva con ESCÁNER ZXING (Sustitución de HTML5-QRCODE) */
+/* app.js - Versión Definitiva con ESCÁNER ZXING (Corregida la Llamada al Botón de Escaneo) */
 
 // Agregamos la referencia global para ZXing
 let codeReader = null; 
@@ -277,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
     menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
     closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
 
-    // Reemplazo del Escáner (USANDO ZXING)
+    // Escáner ZXING (El bueno)
 
     /**
      * Inicia el escáner de códigos de barras usando la librería ZXing.
@@ -412,7 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // setup forms (SIN CAMBIOS)
+    // setup forms (CORRECCIÓN DE LA LLAMADA AL INPUT)
     function setupForm(form, dataKeyName) {
         const skuInput = form.querySelector('input[id$="-sku"]');
         const locationInput = form.querySelector('input[id$="-location"]');
@@ -441,15 +441,16 @@ document.addEventListener('DOMContentLoaded', () => {
         scanBtns.forEach(scanBtn => {
             scanBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                const inputId = e.currentTarget.getAttribute('data-input'); 
+                // <<<<<<<<<<<<<< CORRECCIÓN AQUÍ >>>>>>>>>>>>>>>>>>
+                // Usamos 'data-input-id' que era el atributo esperado en la versión anterior.
+                const inputId = e.currentTarget.getAttribute('data-input-id'); 
                 const inputElement = document.getElementById(inputId);
                 
                 if (inputElement) {
-                    // LLAMADA AL NUEVO ESCANER
                     startScanner(inputElement);
                 } else {
                     const errorMessage = inputId === null 
-                        ? 'Error: El botón de escaneo no tiene el atributo "data-input" definido en el HTML.' 
+                        ? 'Error: El botón de escaneo no tiene el atributo "data-input-id" definido en el HTML.' 
                         : `Elemento de entrada con ID ${inputId} no encontrado.`;
                     showDialog(errorMessage);
                 }
@@ -619,7 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateMovTotal(); // Reiniciar el total
     });
     
-    // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
+    // Carga catálogo 
     document.getElementById('load-file-btn').addEventListener('click', async () => {
         await loadCatalogFromGitHub();
     });
