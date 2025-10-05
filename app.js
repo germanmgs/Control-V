@@ -275,155 +275,84 @@ document.addEventListener('DOMContentLoaded', () => {
     menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
     closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
 
-    // Escáner (BarcodeDetector o ZXing)
-    let videoStream = null;
-    let videoElem = null;
-    let barcodeDetector = null;
-    let useBarcodeDetector = false;
-    let zxingCodeReader = null;
-    const desiredFormats = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'code_93'];
-
-    function ensureVideoElement() {
-        if (!videoElem) {
-            videoElem = document.createElement('video');
-            videoElem.setAttribute('autoplay', true);
-            videoElem.setAttribute('playsinline', true);
-            videoElem.style.width = '100%';
-            videoElem.style.maxHeight = '320px';
-            videoElem.style.objectFit = 'cover';
-            scannerContainer.innerHTML = '';
-            scannerContainer.appendChild(videoElem);
-        }
-    }
-
-    function stopScanner() {
-        if (videoElem && !videoElem.paused) try {
-            videoElem.pause();
-        } catch (e) {}
-        if (zxingCodeReader && zxingCodeReader.reset) try {
-            zxingCodeReader.reset();
-        } catch (e) {}
-        if (videoStream) {
-            videoStream.getTracks().forEach(t => t.stop());
-            videoStream = null;
-        }
-        scannerModal.classList.remove('open');
-        scannerContainer.innerHTML = '';
-        videoElem = null;
-        barcodeDetector = null;
-        useBarcodeDetector = false;
-    }
+    
+    // Escáner con html5-qrcode
+    let html5QrCode = null;
+    let currentScanInput = null;
 
     async function startScanner() {
-        ensureVideoElement();
+        scannerContainer.innerHTML = "";
+        const config = {
+            fps: 10,
+            qrbox: { width: 250, height: 120 },
+            formatsToSupport: [
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.ITF,
+                Html5QrcodeSupportedFormats.CODABAR
+            ],
+            disableFlip: false,
+            videoConstraints: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            },
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true
+            }
+        };
+
+        html5QrCode = new Html5Qrcode("scanner-container");
+
         try {
-            videoStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: {
-                        ideal: 'environment'
+            await html5QrCode.start(
+                { facingMode: "environment" },
+                config,
+                (decodedText) => {
+                    if (decodedText && currentScanInput) {
+                        currentScanInput.value = decodedText;
+                        currentScanInput.dispatchEvent(new Event("input"));
+                        stopScanner();
                     }
                 },
-                audio: false
-            });
-            videoElem.srcObject = videoStream;
-            await videoElem.play();
+                () => {}
+            );
         } catch (err) {
-            alert('No se pudo acceder a la cámara: ' + (err.message || err));
+            console.error("Error iniciando escáner:", err);
+            alert("No se pudo iniciar la cámara: " + (err.message || err));
             stopScanner();
-            return;
         }
+    }
 
-        if ('BarcodeDetector' in window) {
+    async function stopScanner() {
+        if (html5QrCode) {
             try {
-                const supported = await BarcodeDetector.getSupportedFormats();
-                useBarcodeDetector = desiredFormats.some(f => supported.includes(f));
-                if (useBarcodeDetector) barcodeDetector = new BarcodeDetector({
-                    formats: supported.filter(f => desiredFormats.includes(f))
-                });
+                await html5QrCode.stop();
             } catch (e) {
-                useBarcodeDetector = false;
-                barcodeDetector = null;
+                console.warn("Error deteniendo scanner", e);
             }
+            html5QrCode.clear();
+            html5QrCode = null;
         }
-
-        if (useBarcodeDetector && barcodeDetector) {
-            let scanning = true;
-            async function loop() {
-                if (!scanning) return;
-                try {
-                    const codes = await barcodeDetector.detect(videoElem);
-                    if (codes && codes.length) {
-                        const code = codes[0].rawValue || '';
-                        if (code && currentScanInput) {
-                            currentScanInput.value = code;
-                            currentScanInput.dispatchEvent(new Event('input'));
-                            scanning = false;
-                            stopScanner();
-                            return;
-                        }
-                    }
-                } catch (e) {
-                    console.warn('BarcodeDetector error', e);
-                }
-                requestAnimationFrame(loop);
-            }
-            requestAnimationFrame(loop);
-        } else {
-            // ZXing fallback
-            if (window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader)) {
-                const Reader = window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader);
-                try {
-                    zxingCodeReader = new Reader();
-                    const deviceId = await pickBackCameraId();
-                    await zxingCodeReader.decodeFromVideoDevice(deviceId || null, videoElem, (result, err) => {
-                        if (result && result.text) {
-                            if (currentScanInput) {
-                                currentScanInput.value = result.text;
-                                currentScanInput.dispatchEvent(new Event('input'));
-                                try {
-                                    zxingCodeReader.reset();
-                                } catch (e) {}
-                                stopScanner();
-                            }
-                        }
-                        if (err) {
-                            // ignorable errors while scanning
-                        }
-                    });
-                } catch (e) {
-                    console.warn('ZXing fallback error', e);
-                }
-            } else {
-                alert('No hay método de escaneo disponible en este navegador.');
-                stopScanner();
-            }
-        }
+        scannerModal.classList.remove("open");
+        scannerContainer.innerHTML = "";
     }
 
-    async function pickBackCameraId() {
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoInputs = devices.filter(d => d.kind === 'videoinput');
-            for (const v of videoInputs) {
-                const lbl = (v.label || '').toLowerCase();
-                if (lbl.includes('back') || lbl.includes('rear') || lbl.includes('environment')) return v.deviceId;
-            }
-            return videoInputs.length ? videoInputs[0].deviceId : null;
-        } catch (e) {
-            return null;
-        }
-    }
-
-    document.querySelectorAll('.scan-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+    // Bind de botones
+    document.querySelectorAll(".scan-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
             currentScanInput = document.getElementById(btn.dataset.input);
-            scannerModal.classList.add('open');
+            scannerModal.classList.add("open");
             startScanner();
         });
     });
 
-    stopScannerBtn.addEventListener('click', () => stopScanner());
-
+    stopScannerBtn.addEventListener("click", () => stopScanner());
+    
     // Diálogo para notificaciones
     function showDialog(message, buttons = [{
         label: 'Aceptar',
