@@ -1,4 +1,7 @@
-/* app.js - Versión Definitiva con Solución al Escáner en Negro (Octubre 2025) */
+/* app.js - Versión Definitiva con ESCÁNER ZXING (Sustitución de HTML5-QRCODE) */
+
+// Agregamos la referencia global para ZXing
+let codeReader = null; 
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
@@ -10,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pickingForm = document.getElementById('picking-form');
     const almacenForm = document.getElementById('almacen-form');
-    const movimientosForm = document.getElementById('movimientos-form'); 
+    const movimientosForm = document.getElementById('movimientos-form');
 
     const skuSuggestions = document.getElementById('sku-suggestions');
     const scannerModal = document.getElementById('scanner-modal');
@@ -274,120 +277,101 @@ document.addEventListener('DOMContentLoaded', () => {
     menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
     closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
 
-    // Escáner con html5-qrcode
-let html5QrCode = null;
+    // Reemplazo del Escáner (USANDO ZXING)
 
-async function startScanner(inputElement) { 
-    currentScanInput = inputElement; 
-    scannerModal.classList.add('open');
-    scannerContainer.innerHTML = "";
-
-    // SOLUCIÓN AGRESIVA: Forzar dimensiones antes de iniciar el escáner
-    scannerContainer.style.width = '100%'; 
-    scannerContainer.style.maxWidth = '400px'; 
-    scannerContainer.style.height = '300px'; 
-    
-    // Configuración del escáner
-    const config = {
-        fps: 10,
-        qrbox: { width: 250, height: 120 },
-        formatsToSupport: [
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.ITF,
-            Html5QrcodeSupportedFormats.CODABAR
-        ],
-        disableFlip: false,
-        // Configuración para usar la cámara trasera preferentemente
-        videoConstraints: {
-            facingMode: { ideal: "environment" }
+    /**
+     * Inicia el escáner de códigos de barras usando la librería ZXing.
+     * @param {HTMLElement} inputElement - El input donde se colocará el resultado.
+     */
+    async function startScanner(inputElement) { 
+        currentScanInput = inputElement; 
+        scannerModal.classList.add('open');
+        scannerContainer.innerHTML = "";
+        
+        // 1. Crear el objeto CodeReader
+        if (!codeReader) {
+            // Se le especifica que solo busque Code 128 (y otros tipos comunes)
+            codeReader = new ZXing.BrowserMultiFormatReader(
+                new Map([
+                    [ZXing.BarcodeFormat.CODE_128, {}],
+                    [ZXing.BarcodeFormat.CODE_39, {}],
+                    [ZXing.BarcodeFormat.EAN_13, {}],
+                    [ZXing.BarcodeFormat.QR_CODE, {}],
+                ])
+            );
         }
-    };
 
-    html5QrCode = new Html5Qrcode("scanner-container");
+        try {
+            // 2. Obtener lista de dispositivos (esto dispara la petición de permisos)
+            const videoInputDevices = await codeReader.listVideoInputDevices();
 
-    try {
-        let cameraToUse = null;
-
-        // 1. Intentar obtener el ID de la cámara trasera
-        const cameras = await Html5Qrcode.getCameras();
-
-        if (cameras && cameras.length) {
-            // Buscar cámara trasera
-            const rearCamera = cameras.find(camera => 
-                camera.label.toLowerCase().includes('back') || 
-                camera.label.toLowerCase().includes('trasera') || 
-                camera.label.toLowerCase().includes('environment')
+            if (videoInputDevices.length === 0) {
+                throw new Error("ERR_NO_CAMERAS_DETECTED");
+            }
+            
+            // 3. Seleccionar la cámara trasera (si está disponible)
+            const rearCamera = videoInputDevices.find(device => 
+                device.label.toLowerCase().includes('back') || 
+                device.label.toLowerCase().includes('trasera') || 
+                device.label.toLowerCase().includes('environment')
             );
             
-            if (rearCamera) {
-                cameraToUse = rearCamera.id;
-            } else {
-                // Si no se encuentra, usar el ID de la primera cámara disponible
-                cameraToUse = cameras[0].id;
-            }
-        }
-        
-        if (!cameraToUse) {
-            throw new Error("No se encontraron cámaras disponibles en el dispositivo.");
-        }
-
-        // 2. Iniciar con el ID de la cámara seleccionada
-        await html5QrCode.start(
-            cameraToUse,
-            config,
-            (decodedText) => {
-                if (decodedText && currentScanInput) {
-                    currentScanInput.value = decodedText;
-                    currentScanInput.dispatchEvent(new Event("input"));
-                    stopScanner();
+            const deviceId = rearCamera ? rearCamera.deviceId : videoInputDevices[0].deviceId;
+            
+            // 4. Iniciar la decodificación
+            codeReader.decodeFromVideoDevice(
+                deviceId, 
+                'scanner-container', 
+                (result, err) => {
+                    if (result) {
+                        // ¡Escaneo exitoso!
+                        currentScanInput.value = result.text;
+                        currentScanInput.dispatchEvent(new Event("input"));
+                        stopScanner();
+                    }
+                    // Si hay un error de decodificación (no es un error fatal de cámara)
+                    // if (err && !(err instanceof ZXing.NotFoundException)) {
+                    //     console.error("Error de decodificación:", err);
+                    // }
                 }
-            },
-            (errorMessage) => {
-                // Errores de escaneo no fatales
+            );
+            
+            console.log(`Scanner ZXing iniciado con éxito en el dispositivo: ${deviceId}`);
+
+        } catch (err) {
+            console.error("Error FATAL iniciando escáner ZXing:", err);
+            
+            let errMsg = "No se pudo iniciar la cámara (ZXing).\n\n";
+            
+            if (err.message && (err.message.includes("NotAllowedError") || err.message.includes("Permission denied"))) {
+                errMsg += "1. ❌ PERMISO DENEGADO: Debes aceptar el uso de la cámara. Revisa si el permiso está bloqueado permanentemente.";
+            } else if (err.message && err.message.includes("ERR_NO_CAMERAS_DETECTED")) {
+                errMsg += "1. ❌ NO SE ENCONTRARON CÁMARAS: El dispositivo o navegador no detecta ningún dispositivo de cámara.";
+            } else {
+                errMsg += `1. ⚠️ ERROR TÉCNICO: ${err.message || String(err)}.`;
             }
-        );
-        
-    } catch (err) {
-        console.error("Error iniciando escáner:", err);
-        let errMsg = "No se pudo iniciar la cámara: ";
-        if (err.message && err.message.includes("Permission denied")) {
-            errMsg += "Permiso de cámara denegado. Asegúrate de permitir el acceso en la configuración del navegador.";
-        } else if (err.message && err.message.includes("No suitable camera") || err.message.includes("No se encontraron cámaras")) {
-            errMsg += "No se encontró una cámara compatible o disponible. Puede que la cámara ya esté en uso.";
-        } else if (err.message && err.message.includes("Invalid video constraints")) {
-             errMsg += "Error de configuración de la cámara. El dispositivo no soporta los modos solicitados.";
-        } else {
-            errMsg += (err.message || err);
-        }
-        showDialog(errMsg);
-        stopScanner();
-    }
-}
+            
+            errMsg += "\n\n2. 💡 SOLUCIÓN:\n";
+            errMsg += "Asegúrate de estar usando HTTPS y que los permisos de la cámara estén habilitados en la configuración de tu navegador para este sitio.";
 
-async function stopScanner() {
-    if (html5QrCode) {
-        try {
-            await html5QrCode.stop(); 
-        } catch (e) {
-            console.warn("Error deteniendo scanner", e);
+            showDialog("🚨 ¡FALLO CRÍTICO DEL ESCÁNER! 🚨\n\n" + errMsg);
+            stopScanner();
         }
-        html5QrCode.clear();
-        html5QrCode = null;
     }
-    scannerModal.classList.remove("open");
-    // Limpiar estilos forzados
-    scannerContainer.style.width = ''; 
-    scannerContainer.style.maxWidth = '';
-    scannerContainer.style.height = ''; 
-    scannerContainer.innerHTML = "";
-}
 
-    // Diálogo para notificaciones
+    async function stopScanner() {
+        if (codeReader) {
+            try {
+                codeReader.reset(); // Detiene el stream de video y limpia el canvas
+            } catch (e) {
+                console.warn("Error deteniendo scanner (ZXing)", e);
+            }
+        }
+        scannerModal.classList.remove("open");
+        scannerContainer.innerHTML = "";
+    }
+
+    // Diálogo para notificaciones (Sin cambios)
     function showDialog(message, buttons = [{
         label: 'Aceptar',
         value: true
@@ -428,7 +412,7 @@ async function stopScanner() {
         });
     }
 
-    // setup forms
+    // setup forms (SIN CAMBIOS)
     function setupForm(form, dataKeyName) {
         const skuInput = form.querySelector('input[id$="-sku"]');
         const locationInput = form.querySelector('input[id$="-location"]');
@@ -457,14 +441,15 @@ async function stopScanner() {
         scanBtns.forEach(scanBtn => {
             scanBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                const inputId = e.currentTarget.getAttribute('data-input-id'); 
+                const inputId = e.currentTarget.getAttribute('data-input'); 
                 const inputElement = document.getElementById(inputId);
                 
                 if (inputElement) {
+                    // LLAMADA AL NUEVO ESCANER
                     startScanner(inputElement);
                 } else {
                     const errorMessage = inputId === null 
-                        ? 'Error: El botón de escaneo no tiene el atributo "data-input-id" definido en el HTML.' 
+                        ? 'Error: El botón de escaneo no tiene el atributo "data-input" definido en el HTML.' 
                         : `Elemento de entrada con ID ${inputId} no encontrado.`;
                     showDialog(errorMessage);
                 }
