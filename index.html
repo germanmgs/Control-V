@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
-    <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.0.11/umd/index.min.js"></script>
+    <!-- Eliminado ZXing, ahora solo usamos html5-qrcode -->
     <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
     <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
 
@@ -76,6 +76,7 @@
     </aside>
 
     <main>
+        <!-- Picking -->
         <div id="picking-tab" class="tab-content active">
             <h2>Picking</h2>
             <form id="picking-form" class="stock-form">
@@ -122,6 +123,7 @@
             <div id="picking-data" class="data-view"></div>
         </div>
 
+        <!-- Almacén -->
         <div id="almacen-tab" class="tab-content">
             <h2>Almacén</h2>
             <form id="almacen-form" class="stock-form">
@@ -167,6 +169,7 @@
             <div id="almacen-data" class="data-view"></div>
         </div>
 
+        <!-- Movimientos -->
         <div id="movimientos-tab" class="tab-content">
             <h2>Movimientos</h2>
             <form id="movimientos-form" class="stock-form">
@@ -221,9 +224,9 @@
             </form>
             <div id="movimientos-data" class="data-view"></div>
         </div>
-
     </main>
 
+    <!-- Modal del escáner -->
     <div id="scanner-modal" class="modal">
         <div class="modal-content">
             <div id="scanner-container"></div>
@@ -237,7 +240,8 @@
         <button class="nav-btn" data-tab="movimientos-tab"><span class="material-icons">swap_horiz</span><span>Movimientos</span></button>
     </footer>
 
+    <!-- Nuevo escáner -->
+    <script src="https://unpkg.com/html5-qrcode/minified/html5-qrcode.min.js"></script>
     <script src="app.js"></script>
 </body>
-
 </html>
