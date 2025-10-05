@@ -134,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
                 
                 // MODIFICACIÓN: Búsqueda de clave de Ubicación más robusta
-                const locKey = keys.find(k => k.toLowerCase().includes('ubicacion') || k.toLowerCase().includes('ubicaciones') || k.toLowerCase().includes('locacion') || k.toLowerCase().includes('loc'));
+                const locKey = keys.find(k => k.toLowerCase().includes('Ubicaciones') || k.toLowerCase().includes('Ubicacion') || k.toLowerCase().includes('locacion') || k.toLowerCase().includes('loc'));
 
                 if (!skuKey || !descKey) {
                     showDialog('Archivo de Excel sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.');
@@ -907,3 +907,4 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Luego inicializamos Firebase.
     loadCatalogFromGitHub().then(() => initFirebase());
 });
+
