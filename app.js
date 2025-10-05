@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let productCatalog = {};
 
     // URL del catálogo en GitHub
-    // Esta es la URL corregida para el "raw content"
     const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
 
     // Firebase refs
@@ -159,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (locKeyIndex === -1) {
-                 // ADVERTENCIA VISIBLE en consola si no se encuentra el encabezado de ubicación
+                 // ADVERTENCIA VISIBLE en consola si no se encontró el encabezado de ubicación
                  console.warn("ADVERTENCIA: No se encontró una columna con el encabezado 'Ubicación' o similar en el Excel. El autocompletado de ubicación no funcionará.");
             }
 
@@ -549,29 +548,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const sku = skuInput.value.trim();
                 const productInfo = productCatalog[sku];
                 
-                // >>> INICIO DE LA CORRECCIÓN PARA FORZAR LA ACTUALIZACIÓN DE LA UBICACIÓN <<<
-                
-                // 1. Determina la nueva ubicación (o cadena vacía si no se encuentra SKU/ubicación)
+                // Determina la nueva ubicación (o cadena vacía si no se encuentra SKU/ubicación)
                 const nuevaUbicacion = (productInfo && productInfo.ubicacion) ? productInfo.ubicacion : '';
                 
-                // 2. FUERZA la actualización del campo de Ubicación con el nuevo valor.
-                //    Esto asegura que la ubicación anterior sea reemplazada por la nueva (o se vacíe).
-                //    Se incluye la comprobación de desigualdad para evitar un 'update' innecesario y posible re-render.
+                // FUERZA la actualización del campo de Ubicación con el nuevo valor.
                 if (locationInput.value.trim() !== nuevaUbicacion) {
                     locationInput.value = nuevaUbicacion;
                 }
-                
-                // >>> FIN DE LA CORRECCIÓN <<<
-
-                /* CÓDIGO ANTERIOR CON EL PROBLEMA:
-                if (productInfo && productInfo.ubicacion) {
-                    // Autocompletar solo si el campo de ubicación está vacío
-                    // Se agrega trim() a la ubicación del input por si tiene espacios residuales
-                    if (locationInput.value.trim() === '') {
-                        locationInput.value = productInfo.ubicacion;
-                    }
-                }
-                */
             }
         });
         // FIN MODIFICACIÓN
@@ -758,8 +741,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     movBoxesInput.addEventListener('input', updateMovTotal);
     movPerBoxInput.addEventListener('input', updateMovTotal);
-    movLooseInput.addEventListener('input', updateMovTotal);
-    
+    movLooseInput.addEventListener('input', updateMovTotal); // Corregido: Llamar a updateTotal
+
     movimientosForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const sku = movimientoSKU.value.trim();
@@ -796,16 +779,11 @@ document.addEventListener('DOMContentLoaded', () => {
             renderData();
         }
         
-        // **********************************************
-        // MODIFICACIÓN CLAVE: NO HACER reset() al formulario completo
-        // **********************************************
         movimientoSKU.value = '';     // Resetear SKU
         movBoxesInput.value = '';     // Resetear Cajas
         movPerBoxInput.value = '';    // Resetear Unidades por Caja
         movLooseInput.value = '';     // Resetear Sueltos
         updateMovTotal();             // Actualizar el total a 0
-
-        // Los selectores origenSelect y destinoSelect conservan su valor.
     });
 
     // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
@@ -847,7 +825,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clear-almacen-btn').addEventListener('click', () => clearData('almacenData', 'Borrar Almacén?'));
     document.getElementById('clear-movimientos-btn').addEventListener('click', () => clearData('movimientosData', 'Borrar Movimientos?'));
 
-    // NUEVA FUNCIÓN: Agrega la bandera de revisión por multi-ubicación
+    // FUNCIÓN: Agrega la bandera de revisión por multi-ubicación Y el campo 'txt' para Picking/Almacén
     function addReviewFlagToData(data) {
         // 1. Agrupa los datos por SKU y recolecta todas las ubicaciones únicas.
         const skuLocationMap = {};
@@ -871,13 +849,25 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 3. Mapea los datos originales y añade la bandera.
+        // 3. Mapea los datos originales y añade la bandera y el campo 'txt'.
         return data.map(item => {
             const reviewFlag = skusToReview.has(item.sku) ? 'REVISAR MULTI-UBICACION' : 'OK';
             return {
                 ...item,
-                // Nueva propiedad que se usará en la exportación
-                reviewNeeded: reviewFlag
+                reviewNeeded: reviewFlag,
+                // ** CAMPO TXT: SKU,CANTIDAD **
+                txt: `${item.sku},${item.cantidad}`
+            };
+        });
+    }
+
+    // FUNCIÓN: Agrega el campo 'txt' para Movimientos para la exportación (solo SKU,CANTIDAD)
+    function addTxtToMovements(data) {
+        return data.map(item => {
+            return {
+                ...item,
+                // ** MODIFICACIÓN CLAVE: TXT con formato SKU,CANTIDAD **
+                txt: `${item.sku},${item.cantidad}`
             };
         });
     }
@@ -889,7 +879,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const bom = '\uFEFF';
         csvRows.push(columns.map(c => `"${c.title}"`).join(';'));
         data.forEach(item => {
-            csvRows.push(columns.map(col => `"${(item[col.key] != null ? String(item[col.key]) : '').replace(/"/g,'""')}"`).join(';'));
+            csvRows.push(columns.map(col => {
+                const value = item[col.key] != null ? String(item[col.key]) : '';
+                return `"${value.replace(/"/g,'""')}"`;
+            }).join(';'));
         });
         const blob = new Blob([bom + csvRows.join('\n')], {
             type: 'text/csv;charset=utf-8;'
@@ -902,9 +895,11 @@ document.addEventListener('DOMContentLoaded', () => {
         URL.revokeObjectURL(link.href);
     }
     
+    // MODIFICADA: Ahora usa SKU,CANTIDAD para el campo TXT en la tabla
     function aggregateMovements(data) {
         const aggregated = {};
         data.forEach(item => {
+            // Se usa el origen, destino y sku para la clave de agregación
             const key = `${item.sku}-${item.origen}-${item.destino}`;
             if (aggregated[key]) {
                 aggregated[key].cantidad += item.cantidad;
@@ -912,7 +907,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 aggregated[key] = { ...item, _key: [item._key] };
             }
         });
-        return Object.values(aggregated);
+        // Se añade el campo 'txt' al final para la vista en tabla
+        return Object.values(aggregated).map(item => ({
+            ...item,
+            // ** MODIFICACIÓN: TXT solo con SKU,CANTIDAD para la vista de tabla **
+            txt: `${item.sku},${item.cantidad}`
+        }));
     }
 
     function renderData() {
@@ -944,6 +944,8 @@ document.addEventListener('DOMContentLoaded', () => {
             title: 'Cantidad'
         }];
         renderTable('almacen-data', almacenData, almacenCols, 'almacenData');
+        
+        // Columnas para renderizar la tabla de Movimientos (incluye TXT)
         const movCols = [{
             key: 'fecha',
             title: 'Fecha'
@@ -959,34 +961,63 @@ document.addEventListener('DOMContentLoaded', () => {
         }, {
             key: 'cantidad',
             title: 'Cantidad'
+        }, {
+            key: 'txt',
+            title: 'TXT' // Columna TXT para la tabla de Movimientos agregados
         }];
         const aggregatedMovData = aggregateMovements(movimientosData);
         renderTable('movimientos-data', aggregatedMovData, movCols, 'movimientosData');
     }
     
-    // EXPORTACIÓN PICKING MODIFICADA
+    // EXPORTACIÓN PICKING MODIFICADA (Añade TXT)
     document.getElementById('export-picking-btn').addEventListener('click', () => {
-        // 1. Calcular la bandera de revisión
+        // 1. Calcular la bandera de revisión y el campo TXT (SKU,CANTIDAD)
         const dataForExport = addReviewFlagToData(pickingData);
-        // 2. Definir las columnas incluyendo la nueva
-        const pickingCols = [{ key: 'fecha', title: 'Fecha' }, { key: 'sku', title: 'SKU' }, { key: 'ubicacion', title: 'Ubicación' }, { key: 'cantidad', title: 'Cantidad' }, { key: 'reviewNeeded', title: 'Revisión Ubicación' }];
+        // 2. Definir las columnas incluyendo la nueva 'Revisión Ubicación' y 'TXT'
+        const pickingCols = [
+            { key: 'fecha', title: 'Fecha' }, 
+            { key: 'sku', title: 'SKU' }, 
+            { key: 'ubicacion', title: 'Ubicación' }, 
+            { key: 'cantidad', title: 'Cantidad' }, 
+            { key: 'reviewNeeded', title: 'Revisión Ubicación' }, 
+            { key: 'txt', title: 'TXT' } // Columna TXT
+        ];
         // 3. Exportar con la nueva data y columnas
         exportToCsv('picking-data.csv', dataForExport, pickingCols);
     });
     
-    // EXPORTACIÓN ALMACÉN MODIFICADA
+    // EXPORTACIÓN ALMACÉN MODIFICADA (Añade TXT)
     document.getElementById('export-almacen-btn').addEventListener('click', () => {
-        // 1. Calcular la bandera de revisión
+        // 1. Calcular la bandera de revisión y el campo TXT (SKU,CANTIDAD)
         const dataForExport = addReviewFlagToData(almacenData);
-        // 2. Definir las columnas incluyendo la nueva
-        const almacenCols = [{ key: 'fecha', title: 'Fecha' }, { key: 'sku', title: 'SKU' }, { key: 'ubicacion', title: 'Ubicación' }, { key: 'cantidad', title: 'Cantidad' }, { key: 'reviewNeeded', title: 'Revisión Ubicación' }];
+        // 2. Definir las columnas incluyendo la nueva 'Revisión Ubicación' y 'TXT'
+        const almacenCols = [
+            { key: 'fecha', title: 'Fecha' }, 
+            { key: 'sku', title: 'SKU' }, 
+            { key: 'ubicacion', title: 'Ubicación' }, 
+            { key: 'cantidad', title: 'Cantidad' }, 
+            { key: 'reviewNeeded', title: 'Revisión Ubicación' }, 
+            { key: 'txt', title: 'TXT' } // Columna TXT
+        ];
         // 3. Exportar con la nueva data y columnas
         exportToCsv('almacen-data.csv', dataForExport, almacenCols);
     });
 
+    // EXPORTACIÓN MOVIMIENTOS MODIFICADA (Añade TXT con formato SKU,CANTIDAD)
     document.getElementById('export-movimientos-btn').addEventListener('click', () => {
-        const movColsWithTxt = [{ key: 'fecha', title: 'Fecha' }, { key: 'origen', title: 'Origen' }, { key: 'destino', title: 'Destino' }, { key: 'sku', title: 'SKU' }, { key: 'cantidad', title: 'Cantidad' }];
-        exportToCsv('movimientos-data.csv', movimientosData, movColsWithTxt);
+        // 1. Agregar el campo 'txt' con formato SKU,CANTIDAD
+        const dataForExport = addTxtToMovements(movimientosData);
+        // 2. Definir las columnas incluyendo la nueva 'TXT'
+        const movColsWithTxt = [
+            { key: 'fecha', title: 'Fecha' }, 
+            { key: 'origen', title: 'Origen' }, 
+            { key: 'destino', title: 'Destino' }, 
+            { key: 'sku', title: 'SKU' }, 
+            { key: 'cantidad', title: 'Cantidad' }, 
+            { key: 'txt', title: 'TXT' } // Columna TXT
+        ];
+        // 3. Exportar
+        exportToCsv('movimientos-data.csv', dataForExport, movColsWithTxt);
     });
 
 
