@@ -275,84 +275,69 @@ document.addEventListener('DOMContentLoaded', () => {
     menuBtn.addEventListener('click', () => sideMenu.classList.add('open'));
     closeMenuBtn.addEventListener('click', () => sideMenu.classList.remove('open'));
 
-    
-    // Escáner con html5-qrcode
-    let html5QrCode = null;
-    let currentScanInput = null;
+    // Escáner con html5-qrcode (reemplazo minimal)
+let html5QrCode = null;
 
-    async function startScanner() {
-        scannerContainer.innerHTML = "";
-        const config = {
-            fps: 10,
-            qrbox: { width: 250, height: 120 },
-            formatsToSupport: [
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.UPC_E,
-                Html5QrcodeSupportedFormats.ITF,
-                Html5QrcodeSupportedFormats.CODABAR
-            ],
-            disableFlip: false,
-            videoConstraints: {
-                facingMode: { ideal: "environment" },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
-            },
-            experimentalFeatures: {
-                useBarCodeDetectorIfSupported: true
+async function startScanner() {
+    scannerContainer.innerHTML = "";
+    const config = {
+        fps: 10,
+        qrbox: { width: 250, height: 120 },
+        formatsToSupport: [
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.ITF,
+            Html5QrcodeSupportedFormats.CODABAR
+        ],
+        disableFlip: false,
+        videoConstraints: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+        }
+    };
+
+    html5QrCode = new Html5Qrcode("scanner-container");
+
+    try {
+        await html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            (decodedText) => {
+                if (decodedText && currentScanInput) {
+                    currentScanInput.value = decodedText;
+                    currentScanInput.dispatchEvent(new Event("input"));
+                    stopScanner();
+                }
             }
-        };
+        );
+    } catch (err) {
+        console.error("Error iniciando escáner:", err);
+        alert("No se pudo iniciar la cámara: " + (err.message || err));
+        stopScanner();
+    }
+}
 
-        html5QrCode = new Html5Qrcode("scanner-container");
-
+async function stopScanner() {
+    if (html5QrCode) {
         try {
-            await html5QrCode.start(
-                { facingMode: "environment" },
-                config,
-                (decodedText) => {
-                    if (decodedText && currentScanInput) {
-                        currentScanInput.value = decodedText;
-                        currentScanInput.dispatchEvent(new Event("input"));
-                        stopScanner();
-                    }
-                },
-                () => {}
-            );
-        } catch (err) {
-            console.error("Error iniciando escáner:", err);
-            alert("No se pudo iniciar la cámara: " + (err.message || err));
-            stopScanner();
+            await html5QrCode.stop();
+        } catch (e) {
+            console.warn("Error deteniendo scanner", e);
         }
+        html5QrCode.clear();
+        html5QrCode = null;
     }
+    scannerModal.classList.remove("open");
+    scannerContainer.innerHTML = "";
+}
 
-    async function stopScanner() {
-        if (html5QrCode) {
-            try {
-                await html5QrCode.stop();
-            } catch (e) {
-                console.warn("Error deteniendo scanner", e);
-            }
-            html5QrCode.clear();
-            html5QrCode = null;
-        }
-        scannerModal.classList.remove("open");
-        scannerContainer.innerHTML = "";
-    }
+// Botones ya definidos en tu código siguen funcionando porque usan currentScanInput
 
-    // Bind de botones
-    document.querySelectorAll(".scan-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
-            currentScanInput = document.getElementById(btn.dataset.input);
-            scannerModal.classList.add("open");
-            startScanner();
-        });
-    });
-
-    stopScannerBtn.addEventListener("click", () => stopScanner());
-    
     // Diálogo para notificaciones
     function showDialog(message, buttons = [{
         label: 'Aceptar',
