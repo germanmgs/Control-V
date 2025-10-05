@@ -825,6 +825,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clear-almacen-btn').addEventListener('click', () => clearData('almacenData', 'Borrar Almacén?'));
     document.getElementById('clear-movimientos-btn').addEventListener('click', () => clearData('movimientosData', 'Borrar Movimientos?'));
 
+    // NUEVA FUNCIÓN: Genera el timestamp DDMMAA_HHMMSS para el nombre de archivo
+    function generateTimestampFilename() {
+        const now = new Date();
+        const year = String(now.getFullYear()).slice(-2);
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        return `${day}${month}${year}_${hours}${minutes}${seconds}`;
+    }
+
     // FUNCIÓN: Agrega la bandera de revisión por multi-ubicación Y el campo 'txt' para Picking/Almacén
     function addReviewFlagToData(data) {
         // 1. Agrupa los datos por SKU y recolecta todas las ubicaciones únicas.
@@ -855,7 +867,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return {
                 ...item,
                 reviewNeeded: reviewFlag,
-                // ** CAMPO TXT: SKU,CANTIDAD **
+                // CAMPO TXT: SKU,CANTIDAD
                 txt: `${item.sku},${item.cantidad}`
             };
         });
@@ -866,7 +878,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return data.map(item => {
             return {
                 ...item,
-                // ** MODIFICACIÓN CLAVE: TXT con formato SKU,CANTIDAD **
+                // TXT con formato SKU,CANTIDAD
                 txt: `${item.sku},${item.cantidad}`
             };
         });
@@ -910,7 +922,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Se añade el campo 'txt' al final para la vista en tabla
         return Object.values(aggregated).map(item => ({
             ...item,
-            // ** MODIFICACIÓN: TXT solo con SKU,CANTIDAD para la vista de tabla **
+            // MODIFICACIÓN: TXT solo con SKU,CANTIDAD para la vista de tabla
             txt: `${item.sku},${item.cantidad}`
         }));
     }
@@ -969,7 +981,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTable('movimientos-data', aggregatedMovData, movCols, 'movimientosData');
     }
     
-    // EXPORTACIÓN PICKING MODIFICADA (Añade TXT)
+    // EXPORTACIÓN PICKING MODIFICADA (Añade TXT Y TIMESTAMP en nombre)
     document.getElementById('export-picking-btn').addEventListener('click', () => {
         // 1. Calcular la bandera de revisión y el campo TXT (SKU,CANTIDAD)
         const dataForExport = addReviewFlagToData(pickingData);
@@ -982,11 +994,11 @@ document.addEventListener('DOMContentLoaded', () => {
             { key: 'reviewNeeded', title: 'Revisión Ubicación' }, 
             { key: 'txt', title: 'TXT' } // Columna TXT
         ];
-        // 3. Exportar con la nueva data y columnas
-        exportToCsv('picking-data.csv', dataForExport, pickingCols);
+        // 3. Exportar con el nuevo nombre de archivo
+        exportToCsv(`picking-data-${generateTimestampFilename()}.csv`, dataForExport, pickingCols); 
     });
     
-    // EXPORTACIÓN ALMACÉN MODIFICADA (Añade TXT)
+    // EXPORTACIÓN ALMACÉN MODIFICADA (Añade TXT Y TIMESTAMP en nombre)
     document.getElementById('export-almacen-btn').addEventListener('click', () => {
         // 1. Calcular la bandera de revisión y el campo TXT (SKU,CANTIDAD)
         const dataForExport = addReviewFlagToData(almacenData);
@@ -999,11 +1011,11 @@ document.addEventListener('DOMContentLoaded', () => {
             { key: 'reviewNeeded', title: 'Revisión Ubicación' }, 
             { key: 'txt', title: 'TXT' } // Columna TXT
         ];
-        // 3. Exportar con la nueva data y columnas
-        exportToCsv('almacen-data.csv', dataForExport, almacenCols);
+        // 3. Exportar con el nuevo nombre de archivo
+        exportToCsv(`almacen-data-${generateTimestampFilename()}.csv`, dataForExport, almacenCols);
     });
 
-    // EXPORTACIÓN MOVIMIENTOS MODIFICADA (Añade TXT con formato SKU,CANTIDAD)
+    // EXPORTACIÓN MOVIMIENTOS MODIFICADA (Añade TXT y TIMESTAMP en nombre)
     document.getElementById('export-movimientos-btn').addEventListener('click', () => {
         // 1. Agregar el campo 'txt' con formato SKU,CANTIDAD
         const dataForExport = addTxtToMovements(movimientosData);
@@ -1016,8 +1028,8 @@ document.addEventListener('DOMContentLoaded', () => {
             { key: 'cantidad', title: 'Cantidad' }, 
             { key: 'txt', title: 'TXT' } // Columna TXT
         ];
-        // 3. Exportar
-        exportToCsv('movimientos-data.csv', dataForExport, movColsWithTxt);
+        // 3. Exportar con el nuevo nombre de archivo
+        exportToCsv(`movimientos-data-${generateTimestampFilename()}.csv`, dataForExport, movColsWithTxt);
     });
 
 
