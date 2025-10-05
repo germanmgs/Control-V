@@ -1,5 +1,3 @@
-/* app.js - Versión Final */
-
 document.addEventListener('DOMContentLoaded', () => {
     // DOM
     const navButtons = document.querySelectorAll('.nav-btn');
@@ -372,8 +370,29 @@ document.addEventListener('DOMContentLoaded', () => {
             // ZXing fallback
             if (window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader)) {
                 const Reader = window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader);
+
+                // *** INICIO DE MODIFICACIÓN PARA MEJORAR EL ESCANEO DE CÓDIGOS PEQUEÑOS/DENSOS ***
+                const hints = new Map();
+                // Importar el objeto "BarcodeFormat" si está disponible globalmente, o inferir
+                const BarcodeFormat = (window.ZXing && window.ZXing.BarcodeFormat) || (window.ZXingBrowser && window.ZXingBrowser.BarcodeFormat);
+
+                if (BarcodeFormat) {
+                    // TRY_HARDER: Fuerza al lector a usar más recursos y tiempo para encontrar un código
+                    hints.set(BarcodeFormat.TRY_HARDER, true); 
+                    // POSIBLE_FORMATS: Limita el escaneo a los formatos más probables para inventario, mejorando la detección
+                    hints.set(BarcodeFormat.POSSIBLE_FORMATS, [
+                        BarcodeFormat.CODE_128,
+                        BarcodeFormat.CODE_39,
+                        BarcodeFormat.EAN_13,
+                        BarcodeFormat.QR_CODE 
+                    ]);
+                }
+                
                 try {
-                    zxingCodeReader = new Reader();
+                    // Inicializar el lector con las hints de optimización
+                    zxingCodeReader = new Reader(hints); 
+                    // *** FIN DE MODIFICACIÓN ***
+
                     const deviceId = await pickBackCameraId();
                     await zxingCodeReader.decodeFromVideoDevice(deviceId || null, videoElem, (result, err) => {
                         if (result && result.text) {
