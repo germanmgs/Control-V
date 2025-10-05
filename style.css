@@ -378,6 +378,465 @@ tr:nth-child(even) {
 
 #scanner-container {
     width: 100%;
+    height: 300px;
+    background-color: #000;
+    margin-bottom: 1rem;
+}
+
+#stop-scanner-btn {
+    width: 100%;
+}
+
+/* --- Media Queries para Tablets --- */
+@media (min-width: 768px) {
+    header h1 {
+        font-size: 2rem;
+    }
+
+    .stock-form, .data-view {
+        max-width: 800px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .btn, input, select {
+        font-size: 1.1rem;
+    }
+    
+    .form-actions {
+        justify-content: flex-end;
+    }
+
+    .form-actions .btn:first-child {
+        margin-right: auto;
+    }
+    
+    .nav-btn span.material-icons {
+        font-size: 2rem;
+    }
+
+    .nav-btn span:last-child {
+        font-size: 1rem;
+    }
+}
+
+/* --- Estilos para el Diálogo Personalizado --- */
+.custom-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    padding: 10px;
+}
+
+.custom-dialog-box {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    max-width: 420px;
+    width: 100%;
+    text-align: left;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.custom-dialog-message {
+    margin: 0 0 15px 0;
+    white-space: pre-wrap;
+    font-size: 1rem;
+    color: #333;
+}
+
+.custom-dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 15px;
+}
+
+.custom-dialog-button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s ease;
+}
+
+.custom-dialog-button.primary {
+    background-color: var(--primary-color);
+    color: #fff;
+}
+
+.custom-dialog-button.secondary {
+    background-color: #f0f0f0;
+    color: #111;
+}
+
+.custom-dialog-button.primary:hover {
+    background-color: #003366;
+}
+.custom-dialog-button.secondary:hover {
+    background-color: #e0e0e0;
+}
+
+}
+
+
+
+
+
+
+
+
+.icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    color: var(--primary-color);
+}
+
+#side-menu {
+    position: fixed;
+    top: 0;
+    left: -300px;
+    width: 300px;
+    height: 100%;
+    background-color: #fff;
+    box-shadow: var(--box-shadow);
+    transition: left 0.3s ease;
+    padding: 1rem;
+    z-index: 1000;
+}
+
+#side-menu.open {
+    left: 0;
+}
+
+#side-menu h2 {
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+.menu-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.menu-section button {
+    width: 80%;
+    margin-top: 0.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.menu-section h3 {
+    margin-top: 0;
+}
+
+#close-menu-btn {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+}
+
+/* --- Switch estilo Apple --- */
+.switch-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.switch-label input {
+    display: none;
+}
+
+.switch-slider {
+    position: relative;
+    width: 50px;
+    height: 28px;
+    background-color: #ccc;
+    border-radius: 34px;
+    transition: background-color 0.3s;
+}
+
+.switch-slider::before {
+    content: "";
+    position: absolute;
+    height: 22px;
+    width: 22px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+}
+
+.switch-label input:checked + .switch-slider {
+    background-color: var(--primary-color);
+}
+
+.switch-label input:checked + .switch-slider::before {
+    transform: translateX(22px);
+}
+
+/* --- Contenido Principal --- */
+main {
+    flex-grow: 1;
+    padding: 1rem;
+    overflow-y: auto;
+    margin-bottom: 60px;
+}
+
+.tab-content {
+    display: none;
+    animation: fadeIn 0.5s ease;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* --- Formularios --- */
+.stock-form {
+    background-color: #fff;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: var(--box-shadow);
+}
+
+.input-group {
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.input-group label {
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+}
+
+.input-with-scan {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.input-with-scan input {
+    flex-grow: 1;
+}
+
+.scan-btn {
+    background-color: var(--primary-color);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.scan-btn .material-icons {
+    font-size: 1.5rem;
+}
+
+input, select {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 1rem;
+    width: 100%;
+}
+
+input[type="text"] {
+    -moz-appearance: textfield;
+}
+
+input[type="text"]::-webkit-outer-spin-button,
+input[type="text"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.quantity-inputs {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.quantity-inputs input {
+    flex-grow: 1;
+}
+
+.quantity-inputs .material-icons {
+    font-size: 1.5rem;
+    color: #666;
+}
+
+.product-description {
+    font-style: italic;
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 0.25rem;
+}
+
+/* --- Botones y Acciones del Formulario --- */
+.form-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background-color: #003366;
+}
+
+.btn-danger {
+    background-color: var(--danger-color);
+    color: #fff;
+}
+
+.btn-danger:hover {
+    background-color: #c0392b;
+}
+
+/* --- Tabla de datos --- */
+.data-view {
+    margin-top: 2rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: #fff;
+    box-shadow: var(--box-shadow);
+}
+
+th, td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+th {
+    background-color: var(--primary-color);
+    color: #fff;
+    font-weight: bold;
+}
+
+tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+.delete-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--danger-color);
+    padding: 0;
+}
+
+/* --- Barra de Navegación Inferior --- */
+#nav-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: #fff;
+    box-shadow: 0 -4px 6px rgba(0, 0, 0, 0.1);
+    display: flex;
+    justify-content: space-around;
+    padding: 0.5rem 0;
+}
+
+.nav-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--text-color);
+    padding: 0.5rem;
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+
+.nav-btn.active {
+    color: var(--primary-color);
+}
+
+.nav-btn span.material-icons {
+    font-size: 1.5rem;
+}
+
+.nav-btn span:last-child {
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+/* --- Modal del Escáner --- */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.open {
+    display: flex;
+}
+
+.modal-content {
+    background-color: #fefefe;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    width: 90%;
+    max-width: 600px;
+}
+
+#scanner-container {
+    width: 100%;
     height: 400px;
     background-color: #000;
     margin-bottom: 1rem;
@@ -488,6 +947,7 @@ tr:nth-child(even) {
 }
 
 }
+
 
 
 
