@@ -125,40 +125,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 type: 'array'
             });
             const firstSheet = wb.SheetNames[0];
-            const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet]);
+            // MODIFICACIÓN CRÍTICA: Añadir el parámetro header: 1 para asegurar la lectura correcta de la primera fila.
+            // Esto ayuda a estandarizar cómo XLSX.utils.sheet_to_json lee los encabezados.
+            const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { header: 1 });
 
-            const newCatalog = {};
-            if (jsonData.length > 0) {
-                const keys = Object.keys(jsonData[0]);
-                const skuKey = keys.find(k => k.toLowerCase().includes('sku'));
-                const descKey = keys.find(k => k.toLowerCase().includes('descrip') || k.toLowerCase().includes('desc') || k.toLowerCase().includes('nombre'));
-                
-                // MODIFICACIÓN: Búsqueda de clave de Ubicación más robusta
-                const locKey = keys.find(k => k.toLowerCase().includes('Ubicaciones') || k.toLowerCase().includes('Ubicacion') || k.toLowerCase().includes('locacion') || k.toLowerCase().includes('loc'));
-
-                if (!skuKey || !descKey) {
-                    showDialog('Archivo de Excel sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.');
-                    return;
-                }
-
-                if (!locKey) {
-                     // ADVERTENCIA VISIBLE en consola si no se encuentra el encabezado de ubicación
-                     console.warn("ADVERTENCIA: No se encontró una columna con el encabezado 'Ubicación' o similar en el Excel. El autocompletado de ubicación no funcionará.");
-                }
-
-                jsonData.forEach(row => {
-                    const sku = row[skuKey];
-                    const descripcion = row[descKey];
-                    // Aseguramos que el valor se convierta a cadena y se limpie de espacios.
-                    const ubicacion = locKey ? String(row[locKey]).trim() : ''; 
-                    
-                    if (sku) newCatalog[sku] = {
-                        descripcion: descripcion || '',
-                        ubicacion: ubicacion // Se guarda la ubicación
-                    };
-                });
+            if (jsonData.length === 0) {
+                showDialog('El archivo de Excel está vacío.');
+                return;
             }
 
+            // La primera fila es la de los encabezados (headers).
+            const headers = jsonData[0];
+            const dataRows = jsonData.slice(1);
+
+            const newCatalog = {};
+            
+            // Paso 1: Intentar determinar las claves (SKU, Descripción, Ubicación)
+            const skuKeyIndex = headers.findIndex(k => k && String(k).toLowerCase().includes('sku'));
+            const descKeyIndex = headers.findIndex(k => k && (String(k).toLowerCase().includes('descrip') || String(k).toLowerCase().includes('desc') || String(k).toLowerCase().includes('nombre')));
+            
+            // MODIFICACIÓN CLAVE: Búsqueda de clave de Ubicación más robusta (incluyendo un intento de coincidencia exacta)
+            let locKeyIndex = -1;
+            headers.forEach((h, index) => {
+                const headerText = h ? String(h).toLowerCase().trim() : '';
+                // Buscamos: Ubicaciones, Ubicacion, Locacion, Loc
+                if (headerText === 'ubicaciones' || headerText === 'ubicacion' || headerText === 'locacion' || headerText === 'loc') {
+                    locKeyIndex = index;
+                }
+            });
+
+
+            if (skuKeyIndex === -1 || descKeyIndex === -1) {
+                showDialog('Archivo de Excel sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.');
+                return;
+            }
+
+            if (locKeyIndex === -1) {
+                 // ADVERTENCIA VISIBLE en consola si no se encuentra el encabezado de ubicación
+                 console.warn("ADVERTENCIA: No se encontró una columna con el encabezado 'Ubicación' o similar en el Excel. El autocompletado de ubicación no funcionará.");
+            }
+
+            dataRows.forEach(row => {
+                const sku = row[skuKeyIndex];
+                const descripcion = row[descKeyIndex];
+                // Aseguramos que el valor se convierta a cadena y se limpie de espacios.
+                const ubicacion = locKeyIndex !== -1 && row[locKeyIndex] ? String(row[locKeyIndex]).trim() : ''; 
+                
+                if (sku) newCatalog[String(sku).trim()] = { // Asegura que la clave SKU también esté limpia
+                    descripcion: descripcion || '',
+                    ubicacion: ubicacion // Se guarda la ubicación limpia
+                };
+            });
+            
             productCatalog = newCatalog;
             saveToLocalStorage('productCatalog', productCatalog);
             updateDatalist();
@@ -907,4 +925,3 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Luego inicializamos Firebase.
     loadCatalogFromGitHub().then(() => initFirebase());
 });
-
