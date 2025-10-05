@@ -125,8 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 type: 'array'
             });
             const firstSheet = wb.SheetNames[0];
-            // MODIFICACIÓN CRÍTICA: Añadir el parámetro header: 1 para asegurar la lectura correcta de la primera fila.
-            // Esto ayuda a estandarizar cómo XLSX.utils.sheet_to_json lee los encabezados.
+            // MODIFICACIÓN CLAVE DE LA RESPUESTA ANTERIOR: Usa header: 1 para una lectura de encabezados más fiable por índice
             const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { header: 1 });
 
             if (jsonData.length === 0) {
@@ -144,11 +143,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const skuKeyIndex = headers.findIndex(k => k && String(k).toLowerCase().includes('sku'));
             const descKeyIndex = headers.findIndex(k => k && (String(k).toLowerCase().includes('descrip') || String(k).toLowerCase().includes('desc') || String(k).toLowerCase().includes('nombre')));
             
-            // MODIFICACIÓN CLAVE: Búsqueda de clave de Ubicación más robusta (incluyendo un intento de coincidencia exacta)
             let locKeyIndex = -1;
             headers.forEach((h, index) => {
                 const headerText = h ? String(h).toLowerCase().trim() : '';
-                // Buscamos: Ubicaciones, Ubicacion, Locacion, Loc
+                // Búsqueda precisa de las variaciones comunes para Ubicación
                 if (headerText === 'ubicaciones' || headerText === 'ubicacion' || headerText === 'locacion' || headerText === 'loc') {
                     locKeyIndex = index;
                 }
@@ -781,7 +779,17 @@ document.addEventListener('DOMContentLoaded', () => {
             saveToLocalStorage('movimientosData', movimientosData);
             renderData();
         }
-        movimientosForm.reset();
+        
+        // **********************************************
+        // MODIFICACIÓN CLAVE: NO HACER reset() al formulario completo
+        // **********************************************
+        movimientoSKU.value = '';     // Resetear SKU
+        movBoxesInput.value = '';     // Resetear Cajas
+        movPerBoxInput.value = '';    // Resetear Unidades por Caja
+        movLooseInput.value = '';     // Resetear Sueltos
+        updateMovTotal();             // Actualizar el total a 0
+
+        // Los selectores origenSelect y destinoSelect conservan su valor.
     });
 
     // Carga catálogo (MODIFICACIÓN: AHORA LEE EXCEL DESDE GITHUB)
@@ -822,6 +830,42 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clear-picking-btn').addEventListener('click', () => clearData('pickingData', 'Borrar Picking?'));
     document.getElementById('clear-almacen-btn').addEventListener('click', () => clearData('almacenData', 'Borrar Almacén?'));
     document.getElementById('clear-movimientos-btn').addEventListener('click', () => clearData('movimientosData', 'Borrar Movimientos?'));
+
+    // NUEVA FUNCIÓN: Agrega la bandera de revisión por multi-ubicación
+    function addReviewFlagToData(data) {
+        // 1. Agrupa los datos por SKU y recolecta todas las ubicaciones únicas.
+        const skuLocationMap = {};
+        data.forEach(item => {
+            const sku = item.sku;
+            const ubicacion = item.ubicacion;
+            if (!skuLocationMap[sku]) {
+                skuLocationMap[sku] = new Set();
+            }
+            // Solo cuenta las ubicaciones si NO están vacías
+            if (ubicacion && String(ubicacion).trim() !== '') {
+                skuLocationMap[sku].add(ubicacion);
+            }
+        });
+
+        // 2. Identifica los SKUs que tienen más de una ubicación única.
+        const skusToReview = new Set();
+        for (const sku in skuLocationMap) {
+            if (skuLocationMap[sku].size > 1) {
+                skusToReview.add(sku);
+            }
+        }
+
+        // 3. Mapea los datos originales y añade la bandera.
+        return data.map(item => {
+            const reviewFlag = skusToReview.has(item.sku) ? 'REVISAR MULTI-UBICACION' : 'OK';
+            return {
+                ...item,
+                // Nueva propiedad que se usará en la exportación
+                reviewNeeded: reviewFlag
+            };
+        });
+    }
+
 
     // Export helpers
     function exportToCsv(filename, data, columns) {
@@ -903,15 +947,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const aggregatedMovData = aggregateMovements(movimientosData);
         renderTable('movimientos-data', aggregatedMovData, movCols, 'movimientosData');
     }
-
+    
+    // EXPORTACIÓN PICKING MODIFICADA
     document.getElementById('export-picking-btn').addEventListener('click', () => {
-        const pickingCols = [{ key: 'fecha', title: 'Fecha' }, { key: 'sku', title: 'SKU' }, { key: 'ubicacion', title: 'Ubicación' }, { key: 'cantidad', title: 'Cantidad' }];
-        exportToCsv('picking-data.csv', pickingData, pickingCols);
+        // 1. Calcular la bandera de revisión
+        const dataForExport = addReviewFlagToData(pickingData);
+        // 2. Definir las columnas incluyendo la nueva
+        const pickingCols = [{ key: 'fecha', title: 'Fecha' }, { key: 'sku', title: 'SKU' }, { key: 'ubicacion', title: 'Ubicación' }, { key: 'cantidad', title: 'Cantidad' }, { key: 'reviewNeeded', title: 'Revisión Ubicación' }];
+        // 3. Exportar con la nueva data y columnas
+        exportToCsv('picking-data.csv', dataForExport, pickingCols);
     });
-
+    
+    // EXPORTACIÓN ALMACÉN MODIFICADA
     document.getElementById('export-almacen-btn').addEventListener('click', () => {
-        const almacenCols = [{ key: 'fecha', title: 'Fecha' }, { key: 'sku', title: 'SKU' }, { key: 'ubicacion', title: 'Ubicación' }, { key: 'cantidad', title: 'Cantidad' }];
-        exportToCsv('almacen-data.csv', almacenData, almacenCols);
+        // 1. Calcular la bandera de revisión
+        const dataForExport = addReviewFlagToData(almacenData);
+        // 2. Definir las columnas incluyendo la nueva
+        const almacenCols = [{ key: 'fecha', title: 'Fecha' }, { key: 'sku', title: 'SKU' }, { key: 'ubicacion', title: 'Ubicación' }, { key: 'cantidad', title: 'Cantidad' }, { key: 'reviewNeeded', title: 'Revisión Ubicación' }];
+        // 3. Exportar con la nueva data y columnas
+        exportToCsv('almacen-data.csv', dataForExport, almacenCols);
     });
 
     document.getElementById('export-movimientos-btn').addEventListener('click', () => {
