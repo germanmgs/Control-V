@@ -35,64 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let movimientosData = [];
     let productCatalog = {};
 
-    // === CONFIGURACIÓN DE CATALOGO ===
-// ⚠️ Reemplazá el ID abajo por el de tu archivo en Google Drive
-const driveCatalogId = '1oDPi-0PuW3ETp213AVUSrDfHan_p29QT';  // ← PONÉ TU ID AQUÍ
-const driveCatalogUrl = `https://drive.google.com/uc?export=download&id=${driveCatalogId}`;
-
-// Función de carga del catálogo desde Google Drive
-async function loadCatalogFromDrive() {
-    try {
-        showDialog('Cargando catálogo desde Google Drive...');
-        const response = await fetch(driveCatalogUrl);
-        if (!response.ok) {
-            throw new Error(`Error al obtener catálogo de Drive (HTTP ${response.status})`);
-        }
-
-        const data = await response.arrayBuffer();
-        const wb = XLSX.read(data, { type: 'array' });
-        const firstSheet = wb.SheetNames[0];
-        const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { header: 1 });
-
-        if (jsonData.length === 0) {
-            showDialog('El archivo de Excel está vacío.');
-            return;
-        }
-
-        const headers = jsonData[0];
-        const dataRows = jsonData.slice(1);
-
-        const skuKeyIndex = headers.findIndex(k => k && String(k).toLowerCase().includes('sku'));
-        const descKeyIndex = headers.findIndex(k => k && (String(k).toLowerCase().includes('desc') || String(k).toLowerCase().includes('nombre')));
-        const locKeyIndex = headers.findIndex(k => k && String(k).toLowerCase().includes('ubic'));
-
-        if (skuKeyIndex === -1 || descKeyIndex === -1) {
-            showDialog('El archivo no tiene columnas SKU o Descripción.');
-            return;
-        }
-
-        const newCatalog = {};
-        dataRows.forEach(row => {
-            const sku = row[skuKeyIndex];
-            const descripcion = row[descKeyIndex];
-            const ubicacion = locKeyIndex !== -1 && row[locKeyIndex] ? String(row[locKeyIndex]).trim() : '';
-            if (sku) newCatalog[String(sku).trim()] = { descripcion, ubicacion };
-        });
-
-        productCatalog = newCatalog;
-        saveToLocalStorage('productCatalog', productCatalog);
-        updateDatalist();
-        showDialog('Catálogo cargado correctamente desde Google Drive.');
-    } catch (error) {
-        console.error('Error al cargar catálogo de Drive:', error);
-        showDialog('Error al cargar catálogo de Google Drive. ' + error.message);
-    }
-}
-
-// Reemplazá el evento del botón para usar Google Drive
-document.getElementById('load-file-btn').addEventListener('click', async () => {
-    await loadCatalogFromDrive();
-});
+    // URL del catálogo en GitHub
+    const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
 
     // Firebase refs
     let firebaseEnabled = false;
@@ -1094,4 +1038,3 @@ document.getElementById('load-file-btn').addEventListener('click', async () => {
     // 2. Luego inicializamos Firebase.
     loadCatalogFromGitHub().then(() => initFirebase());
 });
-
