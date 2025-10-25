@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let productCatalog = {};
 
     // URL del catálogo en GitHub
-    const githubCatalogUrl = 'https://cdn.jsdelivr.net/gh/germanmgs/Control-V@main/Catalogo.xlsx';
+    const githubCatalogUrl = 'https://raw.githubusercontent.com/germanmgs/Control-V/main/Catalogo.xlsx';
 
     // Firebase refs
     let firebaseEnabled = false;
@@ -1038,5 +1038,3 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Luego inicializamos Firebase.
     loadCatalogFromGitHub().then(() => initFirebase());
 });
-
-
