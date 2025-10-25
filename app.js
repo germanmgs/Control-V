@@ -35,11 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let movimientosData = [];
     let productCatalog = {};
 
-    // URL del catálogo en GitHub
-    // *******************************************************************
-    // ¡CORRECCIÓN CLAVE! Usamos el nombre 'Catalogo.xlsx' como ruta relativa.
+    // URL del catálogo en GitHub - USAMOS EL NOMBRE EXACTO DEL ARCHIVO XLSX
     const githubCatalogUrl = './Catalogo.xlsx';
-    // *******************************************************************
 
     // Firebase refs
     let firebaseEnabled = false;
@@ -111,7 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Funciones de carga de catálogo
     async function loadCatalogFromGitHub() {
         try {
-            // Muestra el diálogo solo si no estamos cargando automáticamente desde local
             if (Object.keys(productCatalog).length === 0) {
                  showDialog('Cargando catálogo desde GitHub...');
             } else {
@@ -119,28 +115,37 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // *******************************************************************
-            // LECTURA DEL ARCHIVO: Usamos el 'fetch' directo al archivo estático.
+            // MODIFICACIÓN CLAVE: LECTURA DE ARCHIVOS XLSX
             const response = await fetch(githubCatalogUrl);
             if (!response.ok) {
-                // El error 429 ahora será un error genérico si GitHub Pages no encuentra el archivo (404)
                 throw new Error('Error al obtener el catálogo. Código de estado: ' + response.status);
             }
             
-            // NOTA: Si el archivo es un .xlsx (Excel), debe ser cargado y parseado diferente a un .csv.
-            // Si el archivo es en realidad un .CSV, usa response.text() y PapaParse.
-            // Si es un .XLSX (formato binario), debes usar XLSX.read o similar.
-
-            // Asumiendo que el archivo 'Catalogo.xlsx' es un archivo CSV, lo leemos como texto:
-            const csvData = await response.text();
+            // 1. Leer el archivo como ArrayBuffer (necesario para archivos binarios como XLSX)
+            const arrayBuffer = await response.arrayBuffer();
             
-            // Usamos PapaParse para el CSV
+            // 2. Usar la librería XLSX (SheetJS) para leer el libro de trabajo
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            
+            // 3. Obtener el nombre de la primera hoja
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            
+            // 4. Convertir la hoja de trabajo a formato CSV para que PapaParse la maneje
+            // Usamos sheet_to_csv para obtener el texto plano con los encabezados correctos
+            const csvData = XLSX.utils.sheet_to_csv(worksheet); 
+            // *******************************************************************
+            
+            // 5. Usamos PapaParse para procesar los datos CSV convertidos
             Papa.parse(csvData, {
                 header: true, // Asume que la primera fila son los encabezados
                 skipEmptyLines: true,
                 complete: function (results) {
                     
-                    if (results.data.length === 0) {
-                        showDialog('El archivo CSV está vacío o el formato no es el esperado.');
+                    if (results.data.length === 0 || !results.meta.fields) {
+                        // Este mensaje se disparaba antes porque los datos binarios no se parseaban bien.
+                        // Ahora debería dispararse si la hoja está realmente vacía o mal formateada.
+                        showDialog('El archivo Excel está vacío o no contiene encabezados válidos.');
                         return;
                     }
                     
@@ -148,21 +153,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     const newCatalog = {};
                     
                     // Paso 1: Intentar determinar las claves (SKU, Descripción, Ubicación)
-                    const skuKey = headers.find(k => k && String(k).toLowerCase().includes('sku'));
-                    const descKey = headers.find(k => k && (String(k).toLowerCase().includes('descrip') || String(k).toLowerCase().includes('desc') || String(k).toLowerCase().includes('nombre')));
+                    // Buscamos las columnas que contienen las palabras clave, ignorando mayúsculas/minúsculas/acentos
+                    const cleanHeaders = headers.map(h => String(h).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim());
                     
-                    let locKey = headers.find(h => {
-                        const headerText = h ? String(h).toLowerCase().trim() : '';
-                        return headerText === 'ubicaciones' || headerText === 'ubicacion' || headerText === 'locacion' || headerText === 'loc';
-                    });
+                    const skuKey = headers.find((k, i) => cleanHeaders[i].includes('sku'));
+                    const descKey = headers.find((k, i) => cleanHeaders[i].includes('descrip') || cleanHeaders[i].includes('desc') || cleanHeaders[i].includes('nombre'));
+                    
+                    let locKey = headers.find((h, i) => cleanHeaders[i] === 'ubicaciones' || cleanHeaders[i] === 'ubicacion' || cleanHeaders[i] === 'locacion' || cleanHeaders[i] === 'loc');
 
                     if (!skuKey || !descKey) {
-                        showDialog('Archivo CSV sin columnas SKU/Descripcion. Asegúrate de que los encabezados existan.');
+                        // El error que estabas viendo antes. Ahora el mensaje es más claro para el usuario.
+                        showDialog('Error: El catálogo cargado no tiene columnas con encabezados que contengan "SKU" y "Descripcion/Nombre". Revisa la primera fila del Excel.');
                         return;
                     }
 
                     if (!locKey) {
-                         console.warn("ADVERTENCIA: No se encontró una columna con el encabezado 'Ubicación' o similar en el CSV. El autocompletado de ubicación no funcionará.");
+                         console.warn("ADVERTENCIA: No se encontró una columna con el encabezado 'Ubicación' o similar. El autocompletado de ubicación no funcionará.");
                          locKey = null; // Aseguramos que sea null si no se encuentra
                     }
 
@@ -181,31 +187,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     productCatalog = newCatalog;
                     saveToLocalStorage('productCatalog', productCatalog);
                     updateDatalist();
-                    showDialog('Catálogo cargado correctamente desde archivo CSV.');
+                    showDialog('Catálogo cargado correctamente desde archivo Excel.');
 
                 },
                 error: function(err) {
                      console.error('Error al parsear CSV (PapaParse):', err);
-                     showDialog('Error al parsear el catálogo CSV: ' + err.message);
+                     showDialog('Error al parsear el catálogo Excel (después de la conversión): ' + err.message);
                 }
             });
-            // *******************************************************************
-            
-            /* // CÓDIGO ALTERNATIVO para .XLSX BINARIO (si el archivo es Excel puro, no CSV renombrado)
-            // Esto requiere que el archivo sea subido a GitHub Pages, pero es más complejo.
-            // Para mantener la simplicidad, asumimos que 'Catalogo.xlsx' contiene datos CSV o es un XLSX que se lee como CSV.
-            // 
-            // const arrayBuffer = await response.arrayBuffer();
-            // const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-            // const firstSheetName = workbook.SheetNames[0];
-            // const worksheet = workbook.Sheets[firstSheetName];
-            // const csvData = XLSX.utils.sheet_to_csv(worksheet); // Convertir a CSV para que PapaParse lo maneje
-            // // ... Luego sigue Papa.parse(csvData, {...})
-            */
 
         } catch (error) {
             console.error('Error al cargar catálogo:', error);
-            showDialog('Error al cargar catálogo. ' + error.message + '. Asegúrate que el archivo Catalogo.xlsx esté en la raíz de GitHub Pages.');
+            showDialog('Error al cargar catálogo. ' + error.message + '. Asegúrate que el archivo **Catalogo.xlsx** esté en la raíz de GitHub Pages.');
         }
     }
 
@@ -811,7 +804,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateMovTotal();             // Actualizar el total a 0
     });
 
-    // Carga catálogo (MODIFICACIÓN: AHORA LEE CSV DIRECTO DESDE LA RUTA RELATIVA)
+    // Carga catálogo 
     document.getElementById('load-file-btn').addEventListener('click', async () => {
         await loadCatalogFromGitHub();
     });
