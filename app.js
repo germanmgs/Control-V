@@ -1088,7 +1088,7 @@ document.addEventListener('DOMContentLoaded', () => {
             key: 'cantidad',
             title: 'Cantidad'
         }];
-        renderTable('picking-data', pickingData, pickingCols, 'pickingData');
+        renderTable('picking-data', [...pickingData].reverse(), pickingCols, 'pickingData');
         const almacenCols = [{
             key: 'fecha',
             title: 'Fecha'
@@ -1102,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', () => {
             key: 'cantidad',
             title: 'Cantidad'
         }];
-        renderTable('almacen-data', almacenData, almacenCols, 'almacenData');
+        renderTable('almacen-data', [...almacenData].reverse(), almacenCols, 'almacenData');
         
         // Columnas para renderizar la tabla de Movimientos (incluye TXT)
         const movCols = [{
@@ -1125,7 +1125,7 @@ document.addEventListener('DOMContentLoaded', () => {
             title: 'TXT' // Columna TXT para la tabla de Movimientos agregados
         }];
         const aggregatedMovData = aggregateMovements(movimientosData);
-        renderTable('movimientos-data', aggregatedMovData, movCols, 'movimientosData');
+        renderTable('movimientos-data', [...aggregatedMovData].reverse(), movCols, 'movimientosData');
 
         const guardadoCols = [{
             key: 'fecha',
@@ -1143,7 +1143,7 @@ document.addEventListener('DOMContentLoaded', () => {
             key: 'ubicacion',
             title: 'Ubicación'
         }];
-        renderTable('guardado-data', guardadoData, guardadoCols, 'guardadoData');
+        renderTable('guardado-data', [...guardadoData].reverse(), guardadoCols, 'guardadoData');
     }
     
     // EXPORTACIÓN PICKING MODIFICADA (Añade TXT Y TIMESTAMP en nombre)
