@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const movimientoCantidad = document.getElementById('movimiento-cantidad');
 
     const firebaseStatus = document.getElementById('firebase-status');
+    const locationCatalogStatus = document.getElementById('location-catalog-status');
     const toggleLocationRequirement = document.getElementById('toggle-location-requirement');
     let locationRequirementDisabled = false;
     toggleLocationRequirement.addEventListener('change', () => {
@@ -53,7 +54,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // URL del catálogo en GitHub - USAMOS EL NOMBRE EXACTO DEL ARCHIVO XLSX
     const githubCatalogUrl = './Catalogo.xlsx';
     // URL del archivo de ubicaciones (TXT separado por tabs) en GitHub
-    const githubLocationUrl = encodeURI('./Articulos_-_Ubicación.txt');
+    // (La URL del archivo de ubicaciones se resuelve dinámicamente en fetchLocationText,
+    // probando variantes de normalización Unicode del nombre de archivo)
 
     // Firebase refs
     let firebaseEnabled = false;
@@ -245,75 +247,114 @@ document.addEventListener('DOMContentLoaded', () => {
     // Carga el archivo de Ubicaciones (Articulos_-_Ubicación.txt) desde GitHub.
     // Es un TXT separado por TABULACIONES con columnas:
     // codigoarticulo (Vaxel, único) | codigofabrica (puede repetirse) | ubicacion | codigodemarca | nombre_marca
-    async function loadLocationCatalogFromGitHub() {
-        try {
-            const response = await fetch(githubLocationUrl);
-            if (!response.ok) {
-                throw new Error('Error al obtener el archivo de ubicaciones. Código de estado: ' + response.status);
+    async function fetchLocationText() {
+        // Probamos la URL tal cual, y si falla, variantes de normalización Unicode
+        // del nombre de archivo (por si el archivo quedó guardado en el repo con
+        // una forma de acentuación distinta a la del código, típico entre Mac/Windows/Linux).
+        const base = './Articulos_-_Ubicación.txt';
+        const candidatos = [
+            encodeURI(base),
+            encodeURI(base.normalize('NFD')),
+            encodeURI(base.normalize('NFC'))
+        ];
+        let lastError = null;
+        for (const url of candidatos) {
+            try {
+                const response = await fetch(url);
+                if (response.ok) return await response.text();
+                lastError = new Error('HTTP ' + response.status + ' en ' + url);
+            } catch (e) {
+                lastError = e;
             }
-            const text = await response.text();
+        }
+        throw lastError || new Error('No se pudo obtener el archivo de ubicaciones.');
+    }
 
-            Papa.parse(text, {
-                header: true,
-                delimiter: '\t',
-                skipEmptyLines: true,
-                complete: function (results) {
-                    if (!results.meta.fields) {
-                        console.warn('El archivo de ubicaciones no tiene encabezados válidos.');
-                        return;
-                    }
+    async function loadLocationCatalogFromGitHub() {
+        if (locationCatalogStatus) locationCatalogStatus.textContent = 'Cargando...';
+        try {
+            const text = await fetchLocationText();
 
-                    const headers = results.meta.fields;
-                    const cleanHeaders = headers.map(h => String(h).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim());
-
-                    const caKey = headers.find((h, i) => cleanHeaders[i] === 'codigoarticulo');
-                    const cfKey = headers.find((h, i) => cleanHeaders[i] === 'codigofabrica');
-                    const ubKey = headers.find((h, i) => cleanHeaders[i] === 'ubicacion');
-                    const marcaKey = headers.find((h, i) => cleanHeaders[i] === 'nombre_marca' || cleanHeaders[i] === 'marca');
-
-                    if (!caKey) {
-                        console.warn('El archivo de ubicaciones no tiene columna "codigoarticulo".');
-                        return;
-                    }
-
-                    const newByArticle = {};
-                    const newByFabrica = {};
-
-                    results.data.forEach(row => {
-                        const codigoarticuloRaw = row[caKey];
-                        if (!codigoarticuloRaw) return;
-                        const codigoarticulo = normalizeSku(codigoarticuloRaw);
-                        const codigofabricaRaw = cfKey ? row[cfKey] : '';
-                        const codigofabrica = codigofabricaRaw ? normalizeSku(codigofabricaRaw) : '';
-                        const ubicacion = ubKey && row[ubKey] ? String(row[ubKey]).trim() : '';
-                        const marca = marcaKey && row[marcaKey] ? String(row[marcaKey]).trim() : '';
-
-                        const entry = {
-                            codigoarticulo: String(codigoarticuloRaw).trim(),
-                            codigofabrica: codigofabricaRaw ? String(codigofabricaRaw).trim() : '',
-                            ubicacion,
-                            marca
-                        };
-
-                        newByArticle[codigoarticulo] = entry;
-
-                        if (codigofabrica) {
-                            if (!newByFabrica[codigofabrica]) newByFabrica[codigofabrica] = [];
-                            newByFabrica[codigofabrica].push(entry);
+            await new Promise((resolve) => {
+                Papa.parse(text, {
+                    header: true,
+                    delimiter: '\t',
+                    skipEmptyLines: true,
+                    complete: function (results) {
+                        if (!results.meta.fields) {
+                            const msg = 'El archivo de ubicaciones no tiene encabezados válidos.';
+                            console.warn(msg);
+                            if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error: ' + msg;
+                            resolve();
+                            return;
                         }
-                    });
 
-                    locationByArticleCode = newByArticle;
-                    locationByFabricaCode = newByFabrica;
-                    saveToLocalStorage('locationByArticleCode', locationByArticleCode);
-                    saveToLocalStorage('locationByFabricaCode', locationByFabricaCode);
-                },
-                error: function (err) {
-                    console.error('Error al parsear el archivo de ubicaciones:', err);
-                }
+                        const headers = results.meta.fields;
+                        const cleanHeaders = headers.map(h => String(h).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim());
+
+                        const caKey = headers.find((h, i) => cleanHeaders[i] === 'codigoarticulo');
+                        const cfKey = headers.find((h, i) => cleanHeaders[i] === 'codigofabrica');
+                        const ubKey = headers.find((h, i) => cleanHeaders[i] === 'ubicacion');
+                        const marcaKey = headers.find((h, i) => cleanHeaders[i] === 'nombre_marca' || cleanHeaders[i] === 'marca');
+
+                        if (!caKey) {
+                            const msg = 'El archivo de ubicaciones no tiene columna "codigoarticulo".';
+                            console.warn(msg);
+                            if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error: ' + msg;
+                            resolve();
+                            return;
+                        }
+
+                        const newByArticle = {};
+                        const newByFabrica = {};
+
+                        results.data.forEach(row => {
+                            const codigoarticuloRaw = row[caKey];
+                            if (!codigoarticuloRaw) return;
+                            const codigoarticulo = normalizeSku(codigoarticuloRaw);
+                            const codigofabricaRaw = cfKey ? row[cfKey] : '';
+                            const codigofabrica = codigofabricaRaw ? normalizeSku(codigofabricaRaw) : '';
+                            const ubicacion = ubKey && row[ubKey] ? String(row[ubKey]).trim() : '';
+                            const marca = marcaKey && row[marcaKey] ? String(row[marcaKey]).trim() : '';
+
+                            const entry = {
+                                codigoarticulo: String(codigoarticuloRaw).trim(),
+                                codigofabrica: codigofabricaRaw ? String(codigofabricaRaw).trim() : '',
+                                ubicacion,
+                                marca
+                            };
+
+                            newByArticle[codigoarticulo] = entry;
+
+                            if (codigofabrica) {
+                                if (!newByFabrica[codigofabrica]) newByFabrica[codigofabrica] = [];
+                                newByFabrica[codigofabrica].push(entry);
+                            }
+                        });
+
+                        locationByArticleCode = newByArticle;
+                        locationByFabricaCode = newByFabrica;
+                        saveToLocalStorage('locationByArticleCode', locationByArticleCode);
+                        saveToLocalStorage('locationByFabricaCode', locationByFabricaCode);
+
+                        const cantidad = Object.keys(newByArticle).length;
+                        if (locationCatalogStatus) {
+                            locationCatalogStatus.textContent = cantidad > 0 ?
+                                `Cargado: ${cantidad} artículos con ubicación/código de fábrica.` :
+                                'El archivo se cargó pero no contiene filas válidas.';
+                        }
+                        resolve();
+                    },
+                    error: function (err) {
+                        console.error('Error al parsear el archivo de ubicaciones:', err);
+                        if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error al parsear el archivo: ' + err.message;
+                        resolve();
+                    }
+                });
             });
         } catch (error) {
             console.error('Error al cargar el archivo de ubicaciones:', error);
+            if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error al cargar el archivo. Verificá que "Articulos_-_Ubicación.txt" esté en la raíz del repo.';
         }
     }
 
@@ -931,6 +972,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Carga catálogo 
     document.getElementById('load-file-btn').addEventListener('click', async () => {
         await loadCatalogFromGitHub();
+    });
+
+    document.getElementById('load-location-btn').addEventListener('click', async () => {
+        await loadLocationCatalogFromGitHub();
     });
 
     function updateDatalist() {
