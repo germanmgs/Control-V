@@ -276,47 +276,65 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const text = await fetchLocationText();
 
+            // El archivo puede venir en dos formatos:
+            // 1) Formato viejo: con fila de encabezado, separado por TABULACIONES.
+            // 2) Formato nuevo: SIN encabezado, separado por COMAS, mismo orden de columnas:
+            //    codigoarticulo, codigofabrica, ubicacion, codigodemarca, nombre_marca
+            const primeraLinea = text.split(/\r?\n/, 1)[0] || '';
+            const tieneEncabezado = /codigoarticulo/i.test(primeraLinea);
+            const delimitador = tieneEncabezado ? '\t' : ',';
+
             await new Promise((resolve) => {
                 Papa.parse(text, {
-                    header: true,
-                    delimiter: '\t',
+                    header: tieneEncabezado,
+                    delimiter: delimitador,
                     skipEmptyLines: true,
                     complete: function (results) {
-                        if (!results.meta.fields) {
-                            const msg = 'El archivo de ubicaciones no tiene encabezados válidos.';
-                            console.warn(msg);
-                            if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error: ' + msg;
-                            resolve();
-                            return;
-                        }
+                        let caKey, cfKey, ubKey, marcaKey;
+                        let rows = results.data;
 
-                        const headers = results.meta.fields;
-                        const cleanHeaders = headers.map(h => String(h).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim());
+                        if (tieneEncabezado) {
+                            if (!results.meta.fields) {
+                                const msg = 'El archivo de ubicaciones no tiene encabezados válidos.';
+                                console.warn(msg);
+                                if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error: ' + msg;
+                                resolve();
+                                return;
+                            }
+                            const headers = results.meta.fields;
+                            const cleanHeaders = headers.map(h => String(h).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim());
+                            caKey = headers.find((h, i) => cleanHeaders[i] === 'codigoarticulo');
+                            cfKey = headers.find((h, i) => cleanHeaders[i] === 'codigofabrica');
+                            ubKey = headers.find((h, i) => cleanHeaders[i] === 'ubicacion');
+                            marcaKey = headers.find((h, i) => cleanHeaders[i] === 'nombre_marca' || cleanHeaders[i] === 'marca');
 
-                        const caKey = headers.find((h, i) => cleanHeaders[i] === 'codigoarticulo');
-                        const cfKey = headers.find((h, i) => cleanHeaders[i] === 'codigofabrica');
-                        const ubKey = headers.find((h, i) => cleanHeaders[i] === 'ubicacion');
-                        const marcaKey = headers.find((h, i) => cleanHeaders[i] === 'nombre_marca' || cleanHeaders[i] === 'marca');
-
-                        if (!caKey) {
-                            const msg = 'El archivo de ubicaciones no tiene columna "codigoarticulo".';
-                            console.warn(msg);
-                            if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error: ' + msg;
-                            resolve();
-                            return;
+                            if (!caKey) {
+                                const msg = 'El archivo de ubicaciones no tiene columna "codigoarticulo".';
+                                console.warn(msg);
+                                if (locationCatalogStatus) locationCatalogStatus.textContent = 'Error: ' + msg;
+                                resolve();
+                                return;
+                            }
+                        } else {
+                            // Sin encabezado: columnas por posición fija.
+                            // 0: codigoarticulo, 1: codigofabrica, 2: ubicacion, 3: codigodemarca, 4: nombre_marca
+                            caKey = 0;
+                            cfKey = 1;
+                            ubKey = 2;
+                            marcaKey = 4;
                         }
 
                         const newByArticle = {};
                         const newByFabrica = {};
 
-                        results.data.forEach(row => {
+                        rows.forEach(row => {
                             const codigoarticuloRaw = row[caKey];
                             if (!codigoarticuloRaw) return;
                             const codigoarticulo = normalizeSku(codigoarticuloRaw);
-                            const codigofabricaRaw = cfKey ? row[cfKey] : '';
+                            const codigofabricaRaw = row[cfKey];
                             const codigofabrica = codigofabricaRaw ? normalizeSku(codigofabricaRaw) : '';
-                            const ubicacion = ubKey && row[ubKey] ? String(row[ubKey]).trim() : '';
-                            const marca = marcaKey && row[marcaKey] ? String(row[marcaKey]).trim() : '';
+                            const ubicacion = row[ubKey] ? String(row[ubKey]).trim() : '';
+                            const marca = row[marcaKey] ? String(row[marcaKey]).trim() : '';
 
                             const entry = {
                                 codigoarticulo: String(codigoarticuloRaw).trim(),
