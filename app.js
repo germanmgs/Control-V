@@ -554,12 +554,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 video: {
                     facingMode: {
                         ideal: 'environment'
-                    }
+                    },
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
                 },
                 audio: false
             });
             videoElem.srcObject = videoStream;
             await videoElem.play();
+
+            // Intentar forzar enfoque continuo (ayuda mucho con etiquetas chicas/de cerca).
+            // No todos los celulares/navegadores lo soportan, por eso va en un try/catch aparte.
+            try {
+                const [track] = videoStream.getVideoTracks();
+                const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+                if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+                    await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+                }
+            } catch (focusErr) {
+                console.warn('No se pudo forzar el enfoque continuo:', focusErr);
+            }
         } catch (err) {
             alert('No se pudo acceder a la cámara: ' + (err.message || err));
             stopScanner();
@@ -609,18 +623,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // *** INICIO DE MODIFICACIÓN PARA MEJORAR EL ESCANEO DE CÓDIGOS PEQUEÑOS/DENSOS ***
                 const hints = new Map();
-                // Importar el objeto "BarcodeFormat" si está disponible globalmente, o inferir
+                // TRY_HARDER y POSSIBLE_FORMATS son "hints" (DecodeHintType), no BarcodeFormat.
+                // Antes se usaba BarcodeFormat.TRY_HARDER (que no existe), por lo que estas
+                // mejoras nunca se aplicaban realmente. Se corrige usando el objeto correcto.
+                const DecodeHintType = (window.ZXing && window.ZXing.DecodeHintType) || (window.ZXingBrowser && window.ZXingBrowser.DecodeHintType);
                 const BarcodeFormat = (window.ZXing && window.ZXing.BarcodeFormat) || (window.ZXingBrowser && window.ZXingBrowser.BarcodeFormat);
 
-                if (BarcodeFormat) {
+                if (DecodeHintType && BarcodeFormat) {
                     // TRY_HARDER: Fuerza al lector a usar más recursos y tiempo para encontrar un código
-                    hints.set(BarcodeFormat.TRY_HARDER, true); 
-                    // POSIBLE_FORMATS: Limita el escaneo a los formatos más probables para inventario, mejorando la detección
-                    hints.set(BarcodeFormat.POSSIBLE_FORMATS, [
+                    hints.set(DecodeHintType.TRY_HARDER, true);
+                    // POSSIBLE_FORMATS: formatos habituales en etiquetas de depósito/fábrica
+                    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
                         BarcodeFormat.CODE_128,
                         BarcodeFormat.CODE_39,
+                        BarcodeFormat.CODE_93,
+                        BarcodeFormat.CODABAR,
+                        BarcodeFormat.ITF,
                         BarcodeFormat.EAN_13,
-                        BarcodeFormat.QR_CODE 
+                        BarcodeFormat.EAN_8,
+                        BarcodeFormat.UPC_A,
+                        BarcodeFormat.UPC_E,
+                        BarcodeFormat.QR_CODE
                     ]);
                 }
                 
