@@ -592,6 +592,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        let nativeDiag = '';
         if ('BarcodeDetector' in window) {
             try {
                 const supported = await BarcodeDetector.getSupportedFormats();
@@ -599,13 +600,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (useBarcodeDetector) barcodeDetector = new BarcodeDetector({
                     formats: supported.filter(f => desiredFormats.includes(f))
                 });
+                nativeDiag = 'Nativo existe. Formatos: ' + (supported && supported.length ? supported.join(',') : '(vacío)');
                 console.log('BarcodeDetector formatos soportados por este navegador:', supported);
             } catch (e) {
                 useBarcodeDetector = false;
                 barcodeDetector = null;
+                nativeDiag = 'Nativo existe pero falló: ' + (e && e.message ? e.message.slice(0, 80) : String(e));
                 console.warn('BarcodeDetector falló al iniciar:', e);
             }
+        } else {
+            nativeDiag = 'BarcodeDetector no existe en este navegador (window.BarcodeDetector es undefined)';
         }
+        window.__vaxelScanDiag = nativeDiag;
 
         // Preparamos también ZXing como respaldo (o único método si no hay BarcodeDetector nativo)
         const Reader = window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader);
@@ -651,7 +657,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let engine = 'Ninguno disponible';
         if (useBarcodeDetector) engine = 'Detector nativo del celular';
         else if (zxingCodeReader) engine = 'Librería de respaldo (ZXing)';
-        scanEngineStatus.textContent = `Motor: ${engine} — Intentos: ${scanAttempts}` + (lastScanError ? ` — Último error: ${lastScanError}` : '');
+        const diag = window.__vaxelScanDiag ? ` — [${window.__vaxelScanDiag}]` : '';
+        scanEngineStatus.textContent = `Motor: ${engine} — Intentos: ${scanAttempts}` + (lastScanError ? ` — Último error: ${lastScanError}` : '') + diag;
     }
 
     function handleScanSuccess(code) {
