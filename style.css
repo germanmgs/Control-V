@@ -1067,3 +1067,51 @@ tr:nth-child(even) {
     text-align: left;
     line-height: 1.4;
 }
+/* --- Selector de modo de escaneo (Código de Barras / Texto) --- */
+.scan-mode-toggle {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.scan-mode-btn {
+    flex: 1;
+    padding: 0.6rem 0.5rem;
+    border: 2px solid var(--primary-color);
+    border-radius: 6px;
+    background-color: #fff;
+    color: var(--primary-color);
+    font-weight: bold;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.scan-mode-btn.active {
+    background-color: var(--primary-color);
+    color: #fff;
+}
+
+/* Guía horizontal para el modo Texto: una franja finita, pensada para UNA sola línea */
+#scanner-container {
+    position: relative;
+}
+
+.scan-text-guide {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.scan-text-guide-line {
+    width: 90%;
+    height: 15%;
+    border: 2px solid #ff771c;
+    border-radius: 4px;
+    box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
+}
