@@ -509,6 +509,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let useBarcodeDetector = false;
     let zxingCodeReader = null;
     let scanCanvas = null;
+    let imageCaptureInstance = null;
     let scanLoopActive = false;
     // Restringido SOLO a Code 128, que es el formato real de tus etiquetas (verificado con la
     // etiqueta de ejemplo SRFZ1). Formatos como ITF/Codabar no tienen checksum fuerte y son
@@ -546,6 +547,7 @@ document.addEventListener('DOMContentLoaded', () => {
         videoElem = null;
         barcodeDetector = null;
         useBarcodeDetector = false;
+        imageCaptureInstance = null;
         if (scanEngineStatus) scanEngineStatus.textContent = '';
     }
 
@@ -585,6 +587,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (focusErr) {
                 console.warn('No se pudo ajustar enfoque/zoom de la cámara:', focusErr);
+            }
+
+            // ImageCapture permite pedirle a la cámara fotos de alta calidad (resolución real
+            // de foto, no de video) de forma automática y en segundo plano, sin ningún botón
+            // ni diálogo — la persona sigue viendo exactamente la misma pantalla de siempre.
+            imageCaptureInstance = null;
+            try {
+                const [track] = videoStream.getVideoTracks();
+                if ('ImageCapture' in window && track) {
+                    imageCaptureInstance = new ImageCapture(track);
+                }
+            } catch (icErr) {
+                console.warn('ImageCapture no disponible:', icErr);
+                imageCaptureInstance = null;
             }
         } catch (err) {
             alert('No se pudo acceder a la cámara: ' + (err.message || err));
@@ -657,8 +673,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let engine = 'Ninguno disponible';
         if (useBarcodeDetector) engine = 'Detector nativo del celular';
         else if (zxingCodeReader) engine = 'Librería de respaldo (ZXing)';
+        const modo = imageCaptureInstance ? ' + fotos automáticas' : ' + video en vivo';
         const diag = window.__vaxelScanDiag ? ` — [${window.__vaxelScanDiag}]` : '';
-        scanEngineStatus.textContent = `Motor: ${engine} — Intentos: ${scanAttempts}` + (lastScanError ? ` — Último error: ${lastScanError}` : '') + diag;
+        scanEngineStatus.textContent = `Motor: ${engine}${modo} — Intentos: ${scanAttempts}` + (lastScanError ? ` — Último error: ${lastScanError}` : '') + diag;
     }
 
     function handleScanSuccess(code) {
@@ -670,11 +687,38 @@ document.addEventListener('DOMContentLoaded', () => {
         stopScanner();
     }
 
-    // Escanea directo sobre el frame completo del video (sin recortar). Recortar con un canvas
-    // requiere las dimensiones "crudas" del sensor (videoWidth/videoHeight), que en el celular
-    // sostenido en vertical NO siempre coinciden con la orientación que se ve en pantalla —
-    // eso hacía que el recorte mirara una parte equivocada del frame y nunca encontrara nada.
-    // Pasarle el <video> completo a los decodificadores evita ese problema por completo.
+    // Convierte un Blob de foto (de ImageCapture) en un canvas listo para decodificar.
+    async function photoBlobToCanvas(blob) {
+        const bitmap = await createImageBitmap(blob);
+        if (!scanCanvas) scanCanvas = document.createElement('canvas');
+        scanCanvas.width = bitmap.width;
+        scanCanvas.height = bitmap.height;
+        scanCanvas.getContext('2d').drawImage(bitmap, 0, 0);
+        if (bitmap.close) bitmap.close();
+        return scanCanvas;
+    }
+
+    // Prioriza fotos reales de alta calidad (ImageCapture.takePhoto), automáticas y en
+    // segundo plano — sin ningún botón ni diálogo visible — porque tienen mucha más
+    // resolución y nitidez que un frame de video en vivo, especialmente quando el celular
+    // no tiene el detector nativo (ML Kit) disponible y depende de la librería de respaldo.
+    // Si el celular no soporta ImageCapture, se usa el frame de video como venía siendo.
+    async function captureFrameCanvas() {
+        if (imageCaptureInstance) {
+            try {
+                const blob = await imageCaptureInstance.takePhoto();
+                return await photoBlobToCanvas(blob);
+            } catch (e) {
+                // Algunos celulares fallan la primera vez o mientras enfocan: seguimos con video.
+            }
+        }
+        if (!scanCanvas) scanCanvas = document.createElement('canvas');
+        scanCanvas.width = videoElem.videoWidth || 640;
+        scanCanvas.height = videoElem.videoHeight || 480;
+        scanCanvas.getContext('2d').drawImage(videoElem, 0, 0, scanCanvas.width, scanCanvas.height);
+        return scanCanvas;
+    }
+
     function startScanLoop() {
         scanLoopActive = true;
 
@@ -682,9 +726,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!scanLoopActive) return;
             scanAttempts++;
 
+            const canvas = await captureFrameCanvas();
+
             if (useBarcodeDetector && barcodeDetector) {
                 try {
-                    const codes = await barcodeDetector.detect(videoElem);
+                    const codes = await barcodeDetector.detect(canvas);
                     if (codes && codes.length && codes[0].rawValue) {
                         handleScanSuccess(codes[0].rawValue);
                         return;
@@ -692,16 +738,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (e) {
                     lastScanError = (e && e.message) ? e.message.slice(0, 60) : String(e).slice(0, 60);
                 }
-            } else if (zxingCodeReader) {
+            } else if (zxingCodeReader && zxingCodeReader.decodeFromCanvas) {
                 try {
-                    const result = zxingCodeReader.decodeFromCanvas ?
-                        (function () {
-                            if (!scanCanvas) scanCanvas = document.createElement('canvas');
-                            scanCanvas.width = videoElem.videoWidth || 640;
-                            scanCanvas.height = videoElem.videoHeight || 480;
-                            scanCanvas.getContext('2d').drawImage(videoElem, 0, 0, scanCanvas.width, scanCanvas.height);
-                            return zxingCodeReader.decodeFromCanvas(scanCanvas);
-                        })() : null;
+                    const result = zxingCodeReader.decodeFromCanvas(canvas);
                     if (result && result.text) {
                         handleScanSuccess(result.text);
                         return;
@@ -715,11 +754,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             updateScanEngineStatus();
-            if (scanLoopActive) setTimeout(tick, 100);
+            // takePhoto() ya tarda un poco por sí solo (enfoque + captura real), así que no
+            // hace falta forzar más demora entre intentos cuando se usa ImageCapture.
+            if (scanLoopActive) setTimeout(tick, imageCaptureInstance ? 30 : 100);
         }
 
         tick();
     }
+
 
 
     async function pickBackCameraId() {
