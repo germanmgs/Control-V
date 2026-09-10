@@ -788,19 +788,42 @@ document.addEventListener('DOMContentLoaded', () => {
         const ctx = scanCanvas.getContext('2d');
         ctx.drawImage(videoElem, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
 
+        // --- Filtro de contraste: si la imagen es prácticamente pareja (una pared, un
+        // mueble, cualquier superficie lisa sin texto), NI SIQUIERA la mandamos al motor
+        // de OCR. Sin este filtro, el motor "inventa" letras a partir del ruido de la
+        // cámara sobre superficies lisas, con confianza alta y todo — por eso "leía
+        // cualquier cosa" apuntando a la nada.
+        const probeData = ctx.getImageData(0, 0, targetW, targetH).data;
+        let sumProbe = 0;
+        const grayProbe = new Uint8ClampedArray(targetW * targetH);
+        for (let i = 0, j = 0; i < probeData.length; i += 4, j++) {
+            const g = 0.299 * probeData[i] + 0.587 * probeData[i + 1] + 0.114 * probeData[i + 2];
+            grayProbe[j] = g;
+            sumProbe += g;
+        }
+        const meanProbe = sumProbe / grayProbe.length;
+        let variance = 0;
+        for (let j = 0; j < grayProbe.length; j++) {
+            const diff = grayProbe[j] - meanProbe;
+            variance += diff * diff;
+        }
+        variance /= grayProbe.length;
+        const stdDev = Math.sqrt(variance);
+
+        // Una etiqueta con texto real tiene mucho contraste (blanco y negro mezclados).
+        // Una superficie lisa (mueble, pared, tela) tiene un desvío estándar muy bajo.
+        const MIN_STD_DEV = 25;
+        if (stdDev < MIN_STD_DEV) {
+            return null; // no hay nada parecido a texto acá: no vale la pena ni intentar leer
+        }
+
         // --- Preprocesamiento: escala de grises + blanco/negro puro (binarización) ---
         // Esto es lo que más mejora la lectura de OCR con cámaras de celular: el motor
         // ya no tiene que lidiar con reflejos, sombras o colores, solo negro sobre blanco.
         const imageData = ctx.getImageData(0, 0, targetW, targetH);
         const d = imageData.data;
-        const gray = new Uint8ClampedArray(targetW * targetH);
-        let sum = 0;
-        for (let i = 0, j = 0; i < d.length; i += 4, j++) {
-            const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-            gray[j] = g;
-            sum += g;
-        }
-        const mean = sum / gray.length;
+        const gray = grayProbe;
+        const mean = meanProbe;
         // Umbral un poco por debajo del promedio: en una etiqueta blanca con texto negro,
         // el fondo domina el promedio, así que hay que exigir bastante oscuridad para "negro".
         const threshold = mean * 0.85;
