@@ -516,7 +516,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let zxingCodeReader = null;
     let scanCanvas = null;
     let scanLoopActive = false;
-    const desiredFormats = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'code_93'];
+    // Restringido SOLO a Code 128, que es el formato real de tus etiquetas (verificado con la
+    // etiqueta de ejemplo SRFZ1). Formatos como ITF/Codabar no tienen checksum fuerte y son
+    // la causa típica de que el escáner "lea" cosas que no son códigos (reflejos, texturas, etc).
+    const desiredFormats = ['code_128'];
 
     function ensureVideoElement() {
         if (!videoElem) {
@@ -615,17 +618,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const BarcodeFormat = (window.ZXing && window.ZXing.BarcodeFormat) || (window.ZXingBrowser && window.ZXingBrowser.BarcodeFormat);
             if (DecodeHintType && BarcodeFormat) {
                 hints.set(DecodeHintType.TRY_HARDER, true);
+                // Restringido SOLO a Code 128 (ver nota en desiredFormats más arriba).
                 hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-                    BarcodeFormat.CODE_128,
-                    BarcodeFormat.CODE_39,
-                    BarcodeFormat.CODE_93,
-                    BarcodeFormat.CODABAR,
-                    BarcodeFormat.ITF,
-                    BarcodeFormat.EAN_13,
-                    BarcodeFormat.EAN_8,
-                    BarcodeFormat.UPC_A,
-                    BarcodeFormat.UPC_E,
-                    BarcodeFormat.QR_CODE
+                    BarcodeFormat.CODE_128
                 ]);
             }
             try {
