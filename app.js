@@ -514,6 +514,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let barcodeDetector = null;
     let useBarcodeDetector = false;
     let zxingCodeReader = null;
+    let scanCanvas = null;
+    let scanLoopActive = false;
     const desiredFormats = ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'code_93'];
 
     function ensureVideoElement() {
@@ -524,12 +526,13 @@ document.addEventListener('DOMContentLoaded', () => {
             videoElem.style.width = '100%';
             videoElem.style.maxHeight = '320px';
             videoElem.style.objectFit = 'cover';
-            scannerContainer.innerHTML = '';
-            scannerContainer.appendChild(videoElem);
+            // Insertamos el video como primer hijo, sin borrar la guía visual que ya está en el HTML.
+            scannerContainer.insertBefore(videoElem, scannerContainer.firstChild);
         }
     }
 
     function stopScanner() {
+        scanLoopActive = false;
         if (videoElem && !videoElem.paused) try {
             videoElem.pause();
         } catch (e) {}
@@ -541,7 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
             videoStream = null;
         }
         scannerModal.classList.remove('open');
-        scannerContainer.innerHTML = '';
+        if (videoElem && videoElem.parentNode) videoElem.parentNode.removeChild(videoElem);
         videoElem = null;
         barcodeDetector = null;
         useBarcodeDetector = false;
@@ -555,8 +558,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     facingMode: {
                         ideal: 'environment'
                     },
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 }
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
                 },
                 audio: false
             });
@@ -568,11 +571,21 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const [track] = videoStream.getVideoTracks();
                 const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+                const advanced = [];
                 if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
-                    await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+                    advanced.push({ focusMode: 'continuous' });
+                }
+                // Un poco de zoom óptico/digital si el celular lo soporta: permite escanear
+                // sin tener que pegar tanto la cámara al código (ahí es donde más cuesta enfocar).
+                if (capabilities.zoom && capabilities.zoom.max) {
+                    const zoomTarget = Math.min(capabilities.zoom.max, Math.max(capabilities.zoom.min || 1, 2));
+                    advanced.push({ zoom: zoomTarget });
+                }
+                if (advanced.length) {
+                    await track.applyConstraints({ advanced });
                 }
             } catch (focusErr) {
-                console.warn('No se pudo forzar el enfoque continuo:', focusErr);
+                console.warn('No se pudo ajustar enfoque/zoom de la cámara:', focusErr);
             }
         } catch (err) {
             alert('No se pudo acceder a la cámara: ' + (err.message || err));
@@ -593,90 +606,122 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        if (useBarcodeDetector && barcodeDetector) {
-            let scanning = true;
-            async function loop() {
-                if (!scanning) return;
-                try {
-                    const codes = await barcodeDetector.detect(videoElem);
-                    if (codes && codes.length) {
-                        const code = codes[0].rawValue || '';
-                        if (code && currentScanInput) {
-                            currentScanInput.value = code;
-                            currentScanInput.dispatchEvent(new Event('input'));
-                            currentScanInput.dispatchEvent(new CustomEvent('scan-complete', { detail: { code } }));
-                            scanning = false;
-                            stopScanner();
-                            return;
-                        }
-                    }
-                } catch (e) {
-                    console.warn('BarcodeDetector error', e);
-                }
-                requestAnimationFrame(loop);
+        // Preparamos también ZXing como respaldo (o único método si no hay BarcodeDetector nativo)
+        const Reader = window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader);
+        if (Reader) {
+            const hints = new Map();
+            // TRY_HARDER y POSSIBLE_FORMATS son "hints" (DecodeHintType), no BarcodeFormat.
+            const DecodeHintType = (window.ZXing && window.ZXing.DecodeHintType) || (window.ZXingBrowser && window.ZXingBrowser.DecodeHintType);
+            const BarcodeFormat = (window.ZXing && window.ZXing.BarcodeFormat) || (window.ZXingBrowser && window.ZXingBrowser.BarcodeFormat);
+            if (DecodeHintType && BarcodeFormat) {
+                hints.set(DecodeHintType.TRY_HARDER, true);
+                hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+                    BarcodeFormat.CODE_128,
+                    BarcodeFormat.CODE_39,
+                    BarcodeFormat.CODE_93,
+                    BarcodeFormat.CODABAR,
+                    BarcodeFormat.ITF,
+                    BarcodeFormat.EAN_13,
+                    BarcodeFormat.EAN_8,
+                    BarcodeFormat.UPC_A,
+                    BarcodeFormat.UPC_E,
+                    BarcodeFormat.QR_CODE
+                ]);
             }
-            requestAnimationFrame(loop);
-        } else {
-            // ZXing fallback
-            if (window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader)) {
-                const Reader = window.BrowserMultiFormatReader || (window.ZXing && window.ZXing.BrowserMultiFormatReader) || (window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader);
-
-                // *** INICIO DE MODIFICACIÓN PARA MEJORAR EL ESCANEO DE CÓDIGOS PEQUEÑOS/DENSOS ***
-                const hints = new Map();
-                // TRY_HARDER y POSSIBLE_FORMATS son "hints" (DecodeHintType), no BarcodeFormat.
-                // Antes se usaba BarcodeFormat.TRY_HARDER (que no existe), por lo que estas
-                // mejoras nunca se aplicaban realmente. Se corrige usando el objeto correcto.
-                const DecodeHintType = (window.ZXing && window.ZXing.DecodeHintType) || (window.ZXingBrowser && window.ZXingBrowser.DecodeHintType);
-                const BarcodeFormat = (window.ZXing && window.ZXing.BarcodeFormat) || (window.ZXingBrowser && window.ZXingBrowser.BarcodeFormat);
-
-                if (DecodeHintType && BarcodeFormat) {
-                    // TRY_HARDER: Fuerza al lector a usar más recursos y tiempo para encontrar un código
-                    hints.set(DecodeHintType.TRY_HARDER, true);
-                    // POSSIBLE_FORMATS: formatos habituales en etiquetas de depósito/fábrica
-                    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-                        BarcodeFormat.CODE_128,
-                        BarcodeFormat.CODE_39,
-                        BarcodeFormat.CODE_93,
-                        BarcodeFormat.CODABAR,
-                        BarcodeFormat.ITF,
-                        BarcodeFormat.EAN_13,
-                        BarcodeFormat.EAN_8,
-                        BarcodeFormat.UPC_A,
-                        BarcodeFormat.UPC_E,
-                        BarcodeFormat.QR_CODE
-                    ]);
-                }
-                
-                try {
-                    // Inicializar el lector con las hints de optimización
-                    zxingCodeReader = new Reader(hints); 
-                    // *** FIN DE MODIFICACIÓN ***
-
-                    const deviceId = await pickBackCameraId();
-                    await zxingCodeReader.decodeFromVideoDevice(deviceId || null, videoElem, (result, err) => {
-                        if (result && result.text) {
-                            if (currentScanInput) {
-                                currentScanInput.value = result.text;
-                                currentScanInput.dispatchEvent(new Event('input'));
-                                currentScanInput.dispatchEvent(new CustomEvent('scan-complete', { detail: { code: result.text } }));
-                                try {
-                                    zxingCodeReader.reset();
-                                } catch (e) {}
-                                stopScanner();
-                            }
-                        }
-                        if (err) {
-                            // ignorable errors while scanning
-                        }
-                    });
-                } catch (e) {
-                    console.warn('ZXing fallback error', e);
-                }
-            } else {
-                alert('No hay método de escaneo disponible en este navegador.');
-                stopScanner();
+            try {
+                zxingCodeReader = new Reader(hints, 120);
+            } catch (e) {
+                zxingCodeReader = null;
             }
         }
+
+        if (!useBarcodeDetector && !zxingCodeReader) {
+            alert('No hay método de escaneo disponible en este navegador.');
+            stopScanner();
+            return;
+        }
+
+        startScanLoop();
+    }
+
+    // Recorta solo la zona de la guía visual (donde el usuario alinea el código) y la agranda.
+    // Esto acelera muchísimo la lectura: en vez de analizar toda la imagen (fondo, mano, bolsa),
+    // sólo procesa una franja chica y nítida donde se supone que está el código de barras.
+    function captureGuideCanvas() {
+        if (!videoElem || !videoElem.videoWidth || !videoElem.videoHeight) return null;
+
+        const vw = videoElem.videoWidth;
+        const vh = videoElem.videoHeight;
+
+        // Debe coincidir aproximadamente con el tamaño del recuadro guía en CSS (.scan-guide-box)
+        const cropWFrac = 0.85;
+        const cropHFrac = 0.32;
+        const cropW = vw * cropWFrac;
+        const cropH = vh * cropHFrac;
+        const cropX = (vw - cropW) / 2;
+        const cropY = (vh - cropH) / 2;
+
+        if (!scanCanvas) scanCanvas = document.createElement('canvas');
+        const targetW = 1000;
+        const targetH = Math.max(1, Math.round(targetW * (cropH / cropW)));
+        scanCanvas.width = targetW;
+        scanCanvas.height = targetH;
+
+        const ctx = scanCanvas.getContext('2d');
+        ctx.drawImage(videoElem, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+        return scanCanvas;
+    }
+
+    function handleScanSuccess(code) {
+        if (currentScanInput) {
+            currentScanInput.value = code;
+            currentScanInput.dispatchEvent(new Event('input'));
+            currentScanInput.dispatchEvent(new CustomEvent('scan-complete', { detail: { code } }));
+        }
+        stopScanner();
+    }
+
+    function startScanLoop() {
+        scanLoopActive = true;
+
+        async function tick() {
+            if (!scanLoopActive) return;
+
+            const canvas = captureGuideCanvas();
+            if (canvas) {
+                let found = false;
+
+                if (useBarcodeDetector && barcodeDetector) {
+                    try {
+                        const codes = await barcodeDetector.detect(canvas);
+                        if (codes && codes.length && codes[0].rawValue) {
+                            handleScanSuccess(codes[0].rawValue);
+                            found = true;
+                        }
+                    } catch (e) {
+                        // sin código en este frame, seguimos intentando
+                    }
+                }
+
+                if (!found && zxingCodeReader) {
+                    try {
+                        const result = zxingCodeReader.decodeFromCanvas(canvas);
+                        if (result && result.text) {
+                            handleScanSuccess(result.text);
+                            found = true;
+                        }
+                    } catch (e) {
+                        // NotFoundException es normal cuando todavía no encontró nada: seguimos
+                    }
+                }
+
+                if (found) return;
+            }
+
+            if (scanLoopActive) setTimeout(tick, 120);
+        }
+
+        tick();
     }
 
     async function pickBackCameraId() {
