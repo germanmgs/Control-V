@@ -754,10 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tesseractWorkerPromise) {
             tesseractWorkerPromise = (async () => {
                 const worker = await Tesseract.createWorker('eng');
-                // Modo de una sola línea: le decimos al motor que espere UN renglón de texto,
-                // no un párrafo — igual que pediste, pensado para leer un código como SRFZ1.
                 await worker.setParameters({
-                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
                     tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
                 });
                 tesseractWorker = worker;
@@ -767,15 +764,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return tesseractWorkerPromise;
     }
 
-    // Recorta solo la franja de la guía naranja (una línea), para que Tesseract no intente
-    // leer todo lo que hay alrededor del código.
+    // Recorta solo la franja de la guía naranja (una línea), la agranda bastante, y la
+    // pasa a blanco y negro puro con más contraste — esto es lo que más ayuda a que el
+    // OCR lea bien texto chico/con reflejos, en vez de dejarle la imagen "cruda" de la cámara.
     function captureTextGuideCanvas() {
         if (!videoElem || !videoElem.videoWidth || !videoElem.videoHeight) return null;
         const vw = videoElem.videoWidth;
         const vh = videoElem.videoHeight;
 
         const cropWFrac = 0.90;
-        const cropHFrac = 0.15;
+        const cropHFrac = 0.18;
         const cropW = vw * cropWFrac;
         const cropH = vh * cropHFrac;
         const cropX = (vw - cropW) / 2;
@@ -783,13 +781,88 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!scanCanvas) scanCanvas = document.createElement('canvas');
         // Agrandamos bastante la franja recortada: ayuda mucho a Tesseract con texto chico.
-        const targetW = 1000;
+        const targetW = 1400;
         const targetH = Math.max(1, Math.round(targetW * (cropH / cropW)));
         scanCanvas.width = targetW;
         scanCanvas.height = targetH;
         const ctx = scanCanvas.getContext('2d');
         ctx.drawImage(videoElem, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+
+        // --- Preprocesamiento: escala de grises + blanco/negro puro (binarización) ---
+        // Esto es lo que más mejora la lectura de OCR con cámaras de celular: el motor
+        // ya no tiene que lidiar con reflejos, sombras o colores, solo negro sobre blanco.
+        const imageData = ctx.getImageData(0, 0, targetW, targetH);
+        const d = imageData.data;
+        const gray = new Uint8ClampedArray(targetW * targetH);
+        let sum = 0;
+        for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+            const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+            gray[j] = g;
+            sum += g;
+        }
+        const mean = sum / gray.length;
+        // Umbral un poco por debajo del promedio: en una etiqueta blanca con texto negro,
+        // el fondo domina el promedio, así que hay que exigir bastante oscuridad para "negro".
+        const threshold = mean * 0.85;
+        for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+            const v = gray[j] < threshold ? 0 : 255;
+            d[i] = d[i + 1] = d[i + 2] = v;
+        }
+        ctx.putImageData(imageData, 0, 0);
+
         return scanCanvas;
+    }
+
+    // Distancia de edición simple (Levenshtein), para tolerar 1 error típico de OCR
+    // (por ejemplo confundir O con 0, o S con 5) sin aceptar cualquier cosa.
+    function levenshtein(a, b) {
+        const m = a.length, n = b.length;
+        if (Math.abs(m - n) > 2) return 99;
+        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+        for (let i = 0; i <= m; i++) dp[i][0] = i;
+        for (let j = 0; j <= n; j++) dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                dp[i][j] = a[i - 1] === b[j - 1] ?
+                    dp[i - 1][j - 1] :
+                    1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+            }
+        }
+        return dp[m][n];
+    }
+
+    // Junta todos los códigos que ya conocemos (Catalogo.xlsx + ubicaciones.txt), normalizados,
+    // para poder chequear si lo que leyó el OCR es realmente un código real antes de aceptarlo.
+    function buildKnownCodesSet() {
+        const set = new Set();
+        Object.keys(productCatalog || {}).forEach(k => set.add(k));
+        Object.keys(locationByArticleCode || {}).forEach(k => set.add(k));
+        Object.keys(locationByFabricaCode || {}).forEach(k => set.add(k));
+        return set;
+    }
+
+    // Busca el código leído dentro de los códigos conocidos. Primero exacto; si no,
+    // busca un único candidato a 1 carácter de distancia (para tolerar errores de OCR
+    // sin aceptar lecturas que no se parecen a ningún código real).
+    function matchKnownCode(candidateRaw, knownCodes) {
+        const candidate = normalizeSku(candidateRaw);
+        if (!candidate) return null;
+        if (knownCodes.has(candidate)) return candidate;
+
+        let best = null;
+        let bestDist = 2; // solo aceptamos 1 carácter de diferencia como máximo
+        let ties = 0;
+        for (const code of knownCodes) {
+            const d = levenshtein(candidate, code);
+            if (d < bestDist) {
+                bestDist = d;
+                best = code;
+                ties = 1;
+            } else if (d === bestDist) {
+                ties++;
+            }
+        }
+        return (best && ties === 1) ? best : null;
     }
 
     async function startTextScanLoop() {
@@ -804,6 +877,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        const knownCodes = buildKnownCodesSet();
+
         async function tick() {
             if (!scanLoopActive) return;
             scanAttempts++;
@@ -811,12 +886,40 @@ document.addEventListener('DOMContentLoaded', () => {
             const canvas = captureTextGuideCanvas();
             if (canvas) {
                 try {
-                    const { data } = await worker.recognize(canvas);
-                    const raw = (data && data.text) ? data.text : '';
-                    // Limpieza: nos quedamos solo con letras/números/guiones, sin espacios ni saltos de línea.
-                    const cleaned = raw.replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
+                    // Probamos dos formas de leer el mismo recorte: como una sola línea
+                    // y como una sola palabra. Nos quedamos con la que dé más caracteres útiles.
+                    await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
+                    const r1 = await worker.recognize(canvas);
+                    await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_WORD });
+                    const r2 = await worker.recognize(canvas);
+
+                    const clean = (txt) => (txt || '').replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
+                    const c1 = clean(r1 && r1.data && r1.data.text);
+                    const c2 = clean(r2 && r2.data && r2.data.text);
+                    const cleaned = c1.length >= c2.length ? c1 : c2;
+
                     if (cleaned && cleaned.length >= 3) {
-                        handleScanSuccess(cleaned);
+                        const match = matchKnownCode(cleaned, knownCodes);
+                        if (match) {
+                            handleScanSuccess(match);
+                            return;
+                        }
+                        // Encontró algo con pinta de código, pero no está en el catálogo ni en
+                        // ubicaciones: paramos y avisamos, en vez de seguir adivinando en silencio.
+                        scanLoopActive = false;
+                        const opcion = await showDialog(
+                            `El código "${cleaned}" no está cargado en el sistema (no aparece ni en el catálogo ni en ubicaciones).`,
+                            [
+                                { label: 'Escribir manualmente', value: 'manual' },
+                                { label: 'Reintentar escaneo', value: 'retry' }
+                            ]
+                        );
+                        if (opcion === 'retry') {
+                            scanLoopActive = true;
+                            setTimeout(tick, 100);
+                        } else {
+                            stopScanner();
+                        }
                         return;
                     }
                 } catch (e) {
@@ -825,7 +928,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             updateScanEngineStatus();
-            if (scanLoopActive) setTimeout(tick, 400);
+            if (scanLoopActive) setTimeout(tick, 500);
         }
 
         if (scanEngineStatus) scanEngineStatus.textContent = 'Motor: Texto (OCR) — Intentos: 0';
