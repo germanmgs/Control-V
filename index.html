@@ -5,12 +5,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Vaxel S.A. - Gestión de Inventario</title>
-    <link rel="stylesheet" href="style.css?v=20250909o">
+    <link rel="stylesheet" href="style.css?v=20250909p">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
     <script src="https://unpkg.com/@zxing/browser@0.2.1/umd/zxing-browser.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
     <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
@@ -257,7 +258,15 @@
 
     <div id="scanner-modal" class="modal">
         <div class="modal-content">
-            <div id="scanner-container"></div>
+            <div class="scan-mode-toggle">
+                <button type="button" id="scan-mode-barcode-btn" class="scan-mode-btn active">Código de Barras</button>
+                <button type="button" id="scan-mode-text-btn" class="scan-mode-btn">Texto / Números</button>
+            </div>
+            <div id="scanner-container">
+                <div id="scan-text-guide" class="scan-text-guide" style="display:none;">
+                    <div class="scan-text-guide-line"></div>
+                </div>
+            </div>
             <p id="scan-engine-status" style="color:#fff; background:rgba(0,0,0,0.6); padding:0.4rem; border-radius:6px; font-size:0.85rem;"></p>
             <button id="stop-scanner-btn" class="btn btn-danger"><span class="material-icons">close</span> Detener Escáner</button>
         </div>
@@ -270,7 +279,7 @@
         <button class="nav-btn" data-tab="guardado-tab"><span class="material-icons">move_to_inbox</span><span>Guardado</span></button>
     </footer>
 
-    <script src="app.js?v=20250909o"></script>
+    <script src="app.js?v=20250909p"></script>
 </body>
 
 </html>
