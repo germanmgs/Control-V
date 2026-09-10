@@ -5,7 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Vaxel S.A. - Gestión de Inventario</title>
-    <link rel="stylesheet" href="style.css?v=20250909g">
+    <link rel="stylesheet" href="style.css?v=20250909i">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
     <script src="https://unpkg.com/@zxing/browser@0.2.1/umd/zxing-browser.min.js"></script>
@@ -257,7 +257,12 @@
 
     <div id="scanner-modal" class="modal">
         <div class="modal-content">
-            <div id="scanner-container"></div>
+            <div id="scanner-container">
+                <div id="scan-guide-overlay" class="scan-guide-overlay">
+                    <div class="scan-guide-box"></div>
+                    <p class="scan-guide-text">Alineá el código de barras dentro del recuadro</p>
+                </div>
+            </div>
             <button id="stop-scanner-btn" class="btn btn-danger"><span class="material-icons">close</span> Detener Escáner</button>
         </div>
     </div>
@@ -269,7 +274,7 @@
         <button class="nav-btn" data-tab="guardado-tab"><span class="material-icons">move_to_inbox</span><span>Guardado</span></button>
     </footer>
 
-    <script src="app.js?v=20250909g"></script>
+    <script src="app.js?v=20250909i"></script>
 </body>
 
 </html>
