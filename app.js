@@ -887,28 +887,38 @@ document.addEventListener('DOMContentLoaded', () => {
             if (canvas) {
                 try {
                     // Probamos dos formas de leer el mismo recorte: como una sola línea
-                    // y como una sola palabra. Nos quedamos con la que dé más caracteres útiles.
+                    // y como una sola palabra. Nos quedamos con la que el motor mismo diga
+                    // que está MÁS SEGURO de haber leído bien (su propio puntaje de confianza),
+                    // no con la que "inventó" más letras — eso era lo que hacía que leyera
+                    // cualquier cosa apuntando a la nada.
                     await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
                     const r1 = await worker.recognize(canvas);
                     await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_WORD });
                     const r2 = await worker.recognize(canvas);
 
                     const clean = (txt) => (txt || '').replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
-                    const c1 = clean(r1 && r1.data && r1.data.text);
-                    const c2 = clean(r2 && r2.data && r2.data.text);
-                    const cleaned = c1.length >= c2.length ? c1 : c2;
+                    const conf1 = (r1 && r1.data && typeof r1.data.confidence === 'number') ? r1.data.confidence : 0;
+                    const conf2 = (r2 && r2.data && typeof r2.data.confidence === 'number') ? r2.data.confidence : 0;
+                    const best = conf1 >= conf2 ?
+                        { text: clean(r1 && r1.data && r1.data.text), conf: conf1 } :
+                        { text: clean(r2 && r2.data && r2.data.text), conf: conf2 };
 
-                    if (cleaned && cleaned.length >= 3) {
-                        const match = matchKnownCode(cleaned, knownCodes);
+                    // Umbral de confianza: por debajo de esto, tratamos la lectura como ruido
+                    // (una pared, una mano, texturas) y seguimos mirando en silencio, sin
+                    // aceptar nada ni molestar con carteles.
+                    const CONFIDENCE_THRESHOLD = 65;
+
+                    if (best.text && best.text.length >= 3 && best.conf >= CONFIDENCE_THRESHOLD) {
+                        const match = matchKnownCode(best.text, knownCodes);
                         if (match) {
                             handleScanSuccess(match);
                             return;
                         }
-                        // Encontró algo con pinta de código, pero no está en el catálogo ni en
-                        // ubicaciones: paramos y avisamos, en vez de seguir adivinando en silencio.
+                        // El motor está SEGURO de haber leído texto real, pero no corresponde a
+                        // ningún código conocido: ahí sí paramos y avisamos (no es ruido al azar).
                         scanLoopActive = false;
                         const opcion = await showDialog(
-                            `El código "${cleaned}" no está cargado en el sistema (no aparece ni en el catálogo ni en ubicaciones).`,
+                            `El código "${best.text}" no está cargado en el sistema (no aparece ni en el catálogo ni en ubicaciones).`,
                             [
                                 { label: 'Escribir manualmente', value: 'manual' },
                                 { label: 'Reintentar escaneo', value: 'retry' }
