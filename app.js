@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const scannerContainer = document.getElementById('scanner-container');
     const scanEngineStatus = document.getElementById('scan-engine-status');
     const stopScannerBtn = document.getElementById('stop-scanner-btn');
+    const scanModeBarcodeBtn = document.getElementById('scan-mode-barcode-btn');
+    const scanModeTextBtn = document.getElementById('scan-mode-text-btn');
+    const scanTextGuide = document.getElementById('scan-text-guide');
 
     const origenSelect = document.getElementById('origen-select');
     const destinoSelect = document.getElementById('destino-select');
@@ -138,6 +141,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Funciones de carga de catálogo
     async function loadCatalogFromGitHub() {
         if (catalogStatus) catalogStatus.textContent = 'Cargando...';
+        if (Object.keys(productCatalog).length === 0) {
+            showDialog('Cargando catálogo desde GitHub...');
+        } else {
+            showDialog('Recargando catálogo desde GitHub...');
+        }
         try {
             // *******************************************************************
             // LECTURA DE ARCHIVOS XLSX
@@ -168,6 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (results.data.length === 0 || !results.meta.fields) {
                         if (catalogStatus) catalogStatus.textContent = 'Error: el archivo Excel está vacío o no contiene encabezados válidos.';
+                        showDialog('El archivo Excel está vacío o no contiene encabezados válidos.');
                         return;
                     }
 
@@ -184,6 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (!skuKey || !descKey) {
                         if (catalogStatus) catalogStatus.textContent = 'Error: el catálogo no tiene columnas con encabezados que contengan "SKU" y "Descripcion/Nombre".';
+                        showDialog('Error: El catálogo cargado no tiene columnas con encabezados que contengan "SKU" y "Descripcion/Nombre". Revisa la primera fila del Excel.');
                         return;
                     }
 
@@ -210,17 +220,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateDatalist();
                     const cantidad = Object.keys(newCatalog).length;
                     if (catalogStatus) catalogStatus.textContent = `Cargado: ${cantidad} productos.`;
+                    showDialog('Catálogo cargado correctamente desde archivo Excel.');
 
                 },
                 error: function (err) {
                     console.error('Error al parsear CSV (PapaParse):', err);
                     if (catalogStatus) catalogStatus.textContent = 'Error al parsear el catálogo: ' + err.message;
+                    showDialog('Error al parsear el catálogo Excel (después de la conversión): ' + err.message);
                 }
             });
 
         } catch (error) {
             console.error('Error al cargar catálogo:', error);
             if (catalogStatus) catalogStatus.textContent = 'Error al cargar el archivo. Verificá que "Catalogo.xlsx" esté en la raíz del repo (GitHub) y que estés entrando por la URL de GitHub Pages.';
+            showDialog('Error al cargar catálogo. ' + error.message + '. Asegúrate que el archivo **Catalogo.xlsx** esté en la raíz de GitHub Pages.');
         }
     }
 
@@ -509,8 +522,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let useBarcodeDetector = false;
     let zxingCodeReader = null;
     let scanCanvas = null;
-    let imageCaptureInstance = null;
     let scanLoopActive = false;
+    // Modo de escaneo: 'barcode' (código de barras) o 'text' (texto/números, ej. SRFZ1)
+    let scanMode = 'barcode';
+    let tesseractWorker = null;
+    let tesseractWorkerPromise = null;
     // Restringido SOLO a Code 128, que es el formato real de tus etiquetas (verificado con la
     // etiqueta de ejemplo SRFZ1). Formatos como ITF/Codabar no tienen checksum fuerte y son
     // la causa típica de que el escáner "lea" cosas que no son códigos (reflejos, texturas, etc).
@@ -547,7 +563,6 @@ document.addEventListener('DOMContentLoaded', () => {
         videoElem = null;
         barcodeDetector = null;
         useBarcodeDetector = false;
-        imageCaptureInstance = null;
         if (scanEngineStatus) scanEngineStatus.textContent = '';
     }
 
@@ -588,23 +603,18 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (focusErr) {
                 console.warn('No se pudo ajustar enfoque/zoom de la cámara:', focusErr);
             }
-
-            // ImageCapture permite pedirle a la cámara fotos de alta calidad (resolución real
-            // de foto, no de video) de forma automática y en segundo plano, sin ningún botón
-            // ni diálogo — la persona sigue viendo exactamente la misma pantalla de siempre.
-            imageCaptureInstance = null;
-            try {
-                const [track] = videoStream.getVideoTracks();
-                if ('ImageCapture' in window && track) {
-                    imageCaptureInstance = new ImageCapture(track);
-                }
-            } catch (icErr) {
-                console.warn('ImageCapture no disponible:', icErr);
-                imageCaptureInstance = null;
-            }
         } catch (err) {
             alert('No se pudo acceder a la cámara: ' + (err.message || err));
             stopScanner();
+            return;
+        }
+
+        if (scanMode === 'text') {
+            scanAttempts = 0;
+            lastScanError = '';
+            window.__vaxelScanDiag = '';
+            updateScanEngineStatus();
+            await startTextScanLoop();
             return;
         }
 
@@ -670,12 +680,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastScanError = '';
     function updateScanEngineStatus() {
         if (!scanEngineStatus) return;
+        if (scanMode === 'text') {
+            scanEngineStatus.textContent = `Motor: Texto (OCR) — Intentos: ${scanAttempts}` + (lastScanError ? ` — Último error: ${lastScanError}` : '');
+            return;
+        }
         let engine = 'Ninguno disponible';
         if (useBarcodeDetector) engine = 'Detector nativo del celular';
         else if (zxingCodeReader) engine = 'Librería de respaldo (ZXing)';
-        const modo = imageCaptureInstance ? ' + fotos automáticas' : ' + video en vivo';
         const diag = window.__vaxelScanDiag ? ` — [${window.__vaxelScanDiag}]` : '';
-        scanEngineStatus.textContent = `Motor: ${engine}${modo} — Intentos: ${scanAttempts}` + (lastScanError ? ` — Último error: ${lastScanError}` : '') + diag;
+        scanEngineStatus.textContent = `Motor: ${engine} — Intentos: ${scanAttempts}` + (lastScanError ? ` — Último error: ${lastScanError}` : '') + diag;
     }
 
     function handleScanSuccess(code) {
@@ -687,38 +700,6 @@ document.addEventListener('DOMContentLoaded', () => {
         stopScanner();
     }
 
-    // Convierte un Blob de foto (de ImageCapture) en un canvas listo para decodificar.
-    async function photoBlobToCanvas(blob) {
-        const bitmap = await createImageBitmap(blob);
-        if (!scanCanvas) scanCanvas = document.createElement('canvas');
-        scanCanvas.width = bitmap.width;
-        scanCanvas.height = bitmap.height;
-        scanCanvas.getContext('2d').drawImage(bitmap, 0, 0);
-        if (bitmap.close) bitmap.close();
-        return scanCanvas;
-    }
-
-    // Prioriza fotos reales de alta calidad (ImageCapture.takePhoto), automáticas y en
-    // segundo plano — sin ningún botón ni diálogo visible — porque tienen mucha más
-    // resolución y nitidez que un frame de video en vivo, especialmente quando el celular
-    // no tiene el detector nativo (ML Kit) disponible y depende de la librería de respaldo.
-    // Si el celular no soporta ImageCapture, se usa el frame de video como venía siendo.
-    async function captureFrameCanvas() {
-        if (imageCaptureInstance) {
-            try {
-                const blob = await imageCaptureInstance.takePhoto();
-                return await photoBlobToCanvas(blob);
-            } catch (e) {
-                // Algunos celulares fallan la primera vez o mientras enfocan: seguimos con video.
-            }
-        }
-        if (!scanCanvas) scanCanvas = document.createElement('canvas');
-        scanCanvas.width = videoElem.videoWidth || 640;
-        scanCanvas.height = videoElem.videoHeight || 480;
-        scanCanvas.getContext('2d').drawImage(videoElem, 0, 0, scanCanvas.width, scanCanvas.height);
-        return scanCanvas;
-    }
-
     function startScanLoop() {
         scanLoopActive = true;
 
@@ -726,11 +707,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!scanLoopActive) return;
             scanAttempts++;
 
-            const canvas = await captureFrameCanvas();
-
             if (useBarcodeDetector && barcodeDetector) {
                 try {
-                    const codes = await barcodeDetector.detect(canvas);
+                    const codes = await barcodeDetector.detect(videoElem);
                     if (codes && codes.length && codes[0].rawValue) {
                         handleScanSuccess(codes[0].rawValue);
                         return;
@@ -738,9 +717,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (e) {
                     lastScanError = (e && e.message) ? e.message.slice(0, 60) : String(e).slice(0, 60);
                 }
-            } else if (zxingCodeReader && zxingCodeReader.decodeFromCanvas) {
+            } else if (zxingCodeReader) {
                 try {
-                    const result = zxingCodeReader.decodeFromCanvas(canvas);
+                    const result = zxingCodeReader.decodeFromCanvas ?
+                        (function () {
+                            if (!scanCanvas) scanCanvas = document.createElement('canvas');
+                            scanCanvas.width = videoElem.videoWidth || 640;
+                            scanCanvas.height = videoElem.videoHeight || 480;
+                            scanCanvas.getContext('2d').drawImage(videoElem, 0, 0, scanCanvas.width, scanCanvas.height);
+                            return zxingCodeReader.decodeFromCanvas(scanCanvas);
+                        })() : null;
                     if (result && result.text) {
                         handleScanSuccess(result.text);
                         return;
@@ -754,13 +740,126 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             updateScanEngineStatus();
-            // takePhoto() ya tarda un poco por sí solo (enfoque + captura real), así que no
-            // hace falta forzar más demora entre intentos cuando se usa ImageCapture.
-            if (scanLoopActive) setTimeout(tick, imageCaptureInstance ? 30 : 100);
+            if (scanLoopActive) setTimeout(tick, 100);
         }
 
         tick();
     }
+
+    // ================== MODO TEXTO / NÚMEROS (OCR con Tesseract.js) ==================
+    // Crea el worker de Tesseract una sola vez (se reutiliza entre escaneos: crearlo de
+    // nuevo cada vez es lento porque tiene que descargar el modelo de reconocimiento).
+    async function ensureTesseractWorker() {
+        if (tesseractWorker) return tesseractWorker;
+        if (!tesseractWorkerPromise) {
+            tesseractWorkerPromise = (async () => {
+                const worker = await Tesseract.createWorker('eng');
+                // Modo de una sola línea: le decimos al motor que espere UN renglón de texto,
+                // no un párrafo — igual que pediste, pensado para leer un código como SRFZ1.
+                await worker.setParameters({
+                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
+                    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
+                });
+                tesseractWorker = worker;
+                return worker;
+            })();
+        }
+        return tesseractWorkerPromise;
+    }
+
+    // Recorta solo la franja de la guía naranja (una línea), para que Tesseract no intente
+    // leer todo lo que hay alrededor del código.
+    function captureTextGuideCanvas() {
+        if (!videoElem || !videoElem.videoWidth || !videoElem.videoHeight) return null;
+        const vw = videoElem.videoWidth;
+        const vh = videoElem.videoHeight;
+
+        const cropWFrac = 0.90;
+        const cropHFrac = 0.15;
+        const cropW = vw * cropWFrac;
+        const cropH = vh * cropHFrac;
+        const cropX = (vw - cropW) / 2;
+        const cropY = (vh - cropH) / 2;
+
+        if (!scanCanvas) scanCanvas = document.createElement('canvas');
+        // Agrandamos bastante la franja recortada: ayuda mucho a Tesseract con texto chico.
+        const targetW = 1000;
+        const targetH = Math.max(1, Math.round(targetW * (cropH / cropW)));
+        scanCanvas.width = targetW;
+        scanCanvas.height = targetH;
+        const ctx = scanCanvas.getContext('2d');
+        ctx.drawImage(videoElem, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+        return scanCanvas;
+    }
+
+    async function startTextScanLoop() {
+        scanLoopActive = true;
+        let worker;
+        try {
+            if (scanEngineStatus) scanEngineStatus.textContent = 'Cargando motor de texto (una sola vez)...';
+            worker = await ensureTesseractWorker();
+        } catch (e) {
+            console.error('No se pudo iniciar el motor de texto:', e);
+            if (scanEngineStatus) scanEngineStatus.textContent = 'Error al cargar el motor de texto: ' + (e && e.message ? e.message : e);
+            return;
+        }
+
+        async function tick() {
+            if (!scanLoopActive) return;
+            scanAttempts++;
+
+            const canvas = captureTextGuideCanvas();
+            if (canvas) {
+                try {
+                    const { data } = await worker.recognize(canvas);
+                    const raw = (data && data.text) ? data.text : '';
+                    // Limpieza: nos quedamos solo con letras/números/guiones, sin espacios ni saltos de línea.
+                    const cleaned = raw.replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
+                    if (cleaned && cleaned.length >= 3) {
+                        handleScanSuccess(cleaned);
+                        return;
+                    }
+                } catch (e) {
+                    lastScanError = (e && e.message) ? e.message.slice(0, 60) : String(e).slice(0, 60);
+                }
+            }
+
+            updateScanEngineStatus();
+            if (scanLoopActive) setTimeout(tick, 400);
+        }
+
+        if (scanEngineStatus) scanEngineStatus.textContent = 'Motor: Texto (OCR) — Intentos: 0';
+        tick();
+    }
+
+    // Selector de modo: Código de Barras <-> Texto/Números. Se puede cambiar con la
+    // cámara ya abierta, sin cerrar ni volver a pedir permiso.
+    function setScanMode(mode) {
+        if (scanMode === mode) return;
+        scanMode = mode;
+        scanModeBarcodeBtn.classList.toggle('active', mode === 'barcode');
+        scanModeTextBtn.classList.toggle('active', mode === 'text');
+        if (scanTextGuide) scanTextGuide.style.display = (mode === 'text') ? 'flex' : 'none';
+
+        // Si la cámara ya está abierta, reiniciamos solo el loop de análisis (no la cámara)
+        if (videoStream) {
+            scanLoopActive = false;
+            if (zxingCodeReader && zxingCodeReader.reset) try { zxingCodeReader.reset(); } catch (e) {}
+            barcodeDetector = null;
+            useBarcodeDetector = false;
+            zxingCodeReader = null;
+            scanAttempts = 0;
+            lastScanError = '';
+            if (mode === 'text') {
+                startTextScanLoop();
+            } else {
+                startScanner();
+            }
+        }
+    }
+
+    scanModeBarcodeBtn.addEventListener('click', () => setScanMode('barcode'));
+    scanModeTextBtn.addEventListener('click', () => setScanMode('text'));
 
 
 
@@ -782,6 +881,9 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', () => {
             currentScanInput = document.getElementById(btn.dataset.input);
             scannerModal.classList.add('open');
+            scanModeBarcodeBtn.classList.toggle('active', scanMode === 'barcode');
+            scanModeTextBtn.classList.toggle('active', scanMode === 'text');
+            if (scanTextGuide) scanTextGuide.style.display = (scanMode === 'text') ? 'flex' : 'none';
             startScanner();
         });
     });
